@@ -4,6 +4,7 @@ import os
 import math
 import argparse
 import itertools
+
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
@@ -12,13 +13,13 @@ from PIL import Image, ImageDraw, ImageFont
 # Largest QR code (size/version "40") can hold 1273 bytes of data in maximum
 # error correction mode. Reserve first 5 bytes for header, rest for data.
 #
-# | Header (5 bytes total)                      |
-# | Dataset ID | Share index | Number of shares |
-# | 1 byte     | 1 byte      | 1 byte           |
+# | Header (7 bytes total)                            |
+# | Dataset ID | Fragment index | Number of fragments |
+# | 1 byte     | 1 byte         | 1 byte              |
 #
-# | Header, continued                   | Data               |
-# | Segment index  | Number of Segments | GZipped data       |
-# | 1 byte         | 1 byte             | 0 - 1268 bytes     |
+# | Header, continued                   |                 | Data             |
+# | Segment index  | Number of segments | Header checksum | GZipped data     |
+# | 1 byte         | 1 byte             | 2 bytes         | 0 - 1268 bytes   |
 #
 #
 # Data split algorithm overview:
@@ -35,47 +36,53 @@ from PIL import Image, ImageDraw, ImageFont
 #   cryptographically secure (i.e. unguessable) random string of bits of same
 #   length as the original data (length of the compressed input in this case).
 # - Return the result of XOR(compressed_data, otp_1, ..., otp_(n-1)) as the
-#   first share and the one-time pads as remaining sharesfor a total of n
-#   shares.
-# - Break each share into 1268 byte "segments". A segment fits into a QR code
-#   (1273 bytes max = 5 bytes header + up to 1268 bytes data).
+#   first fragment and the one-time pads as remaining fragments for a total of
+#   n fragments.
+# - Break each fragment into 1266 byte "segments". A segment fits into a QR
+#   code (1273 bytes max = 7 bytes header + up to 1266 bytes data).
 # For each segment:
-# - Construct 5 byte header:
+# - Construct 7 byte header:
 #   - The first header field, "Dataset ID", is given by user and used to group
 #     qr codes for which segments and fragments all belong to the same original
 #     input.
-#   - Fields 2 and 3 identify the share (via 1-based index) and specify total
-#     number of shares, e.g.:
-#       Field 2, share index: 1
+#   - Fields 2 and 3 identify the fragment (by 0-based index) and specify total
+#     number of fragments, e.g.:
+#       Field 2, share index: 0
 #       Field 3, num shares:  3
 #     means this is the first of 3 total shares.
-#   - Fields 4 and 5 identify the segment (via 1-based index) and total number
+#   - Fields 4 and 5 identify the segment (by 0-based index) and total number
 #     of segments.
-#       Field 4, segment index: 2
+#       Field 4, segment index: 1
 #       Field 5, num segment:   2
 #     means this is the second (last) of 2 total segments.
-# - Put the header followed by the segment body into a QR code, and write it out
-#   as a PNG file.
+#   - Fields 6 and 7 contain a checksum of the first 5 bytes
+# - Put the header followed by the segment body into a QR code, and write it
+#   out as a PNG file.
+# - For .dat file output mode, do all these same steps, except splitting into
+#   segments: use 1 segment of unbounded size since we're not restricted to QR
+#   code capacity.
 #
 #
 # Data reconstruction algorithm:
 # Given all QR codes obtained by running the split algorithm above:
 # - Decode QR codes into segments.
-# - Group segments by dataset id then share index.
-# - Assert all segments of all shares are available.
-# - Concatenate each segment in order by index to obtain the share.
-# - Combine the shares with XOR to obtain the compressed input.
+#   - For .dat file mode, read the .dat files as binary data.
+# - Group segments by dataset id then fragment index.
+# - Assert all segments of all fragments are available.
+# - Concatenate each segment in order by index to obtain the fragment.
+# - Combine the fragments with XOR to obtain the compressed input.
 # - Decompress the input to obtain the original plaintext data.
 #
 #
 # M-of-N shares:
 # So far, data was split into N shares, each of which is needed to reconstruct
 # the original. To split into M-of-N shares, so that data can be recovered with
-# any M of N total shares, do an M-way split for each subset of N shares that
-# should have access to the data: N choose M for a full M-of-N split.
+# any M of N total shares, do an M-way split for each subset (size M) of N
+# shares that should have access to the data: N choose M for a full M-of-N
+# split.
 # E.g. for 2-of-3 sharing: make 3 separate 2-of-2 splits, using a different
 # dataset ID for each, say A, B, and C.
-# Then choose pairs of splits from each set (assuming 1 segment for this
+# Then choose pairs of fragments from each set (assuming 1 segment for this
 # example), and bundle those into 3 shares, any 2 of which are enough to
 # recover the original:
 #
@@ -96,7 +103,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 # From https://www.qrcode.com/en/about/version.html
 QR_SIZE_BYTES = 1273
-QR_HEADER_SIZE_BYTES = 5
+QR_HEADER_SIZE_BYTES = 7
 QR_DATA_SIZE_BYTES = QR_SIZE_BYTES - QR_HEADER_SIZE_BYTES
 QR_BOX_SIZE = 10
 QR_BORDER = 5
@@ -264,6 +271,60 @@ def m_of_n_shares(data, n, m):
         yield (share_name, dataset_batch(share_name, shares[share_id]))
 
 
+def assert_byte(b, msg):
+    if b < 0 or b > 255:
+        raise FatalError(msg + " value '{}' is out of range, must be in [0,255].".format(b))
+
+
+def fletcher_checksum_16(xs):
+    """
+    Return 2 byte fletcher's checksum.
+    """
+    c = 0
+    n = 0
+    for x in xs:
+        n = (n + x) # simple sum, ignores order
+        c = (c + n) # sum of simple sums, depends on order
+    return bytes([c % 255, n % 255])
+
+
+def make_header(info, m, segment_id, total_segments):
+    dataset_id = info['dataset_id']
+    fragment_id = info['fragment_id']
+    total_fragments = m
+
+    header = [dataset_id,
+              fragment_id, total_fragments,
+              segment_id, total_segments]
+    names = ['dataset_id',
+             'fragment_id', 'total_fragments',
+             'segment_id', 'total_segments']
+
+    for (b, n) in zip(header, names):
+        assert_byte(b, n)
+
+    if fragment_id >= total_fragments:
+        raise FatalError(
+            "fragment_id '{}' out of range, "
+            "must be less than total_fragments '{}'".format(
+                fragment_id, total_fragments))
+
+    if segment_id >= total_segments:
+        raise FatalError(
+            "segment_id '{}' out of range, "
+            "must be less than total_segments '{}'".format(
+                segment_id, total_segments))
+
+    header_bytes = bytes(header)
+    return header_bytes + fletcher_checksum_16(header_bytes)
+
+
+def write_split_data(header, data, out_path):
+    with open(out_path + ".dat", "wb") as f:
+        f.write(header)
+        f.write(data)
+
+
 def do_split(in_file_name, out_dir_path, fmt, n, m):
     if os.path.exists(out_dir_path):
         raise FatalError("Output dir {} already exists, aborting."
@@ -281,11 +342,14 @@ def do_split(in_file_name, out_dir_path, fmt, n, m):
     for (share_name, batch) in m_of_n_shares(gzdata, n, m or n):
         share_dir = os.path.join(out_dir_path, share_name)
         os.makedirs(share_dir)
+        part = 0
         for (info, data) in batch:
             out_path = os.path.join(share_dir, fragment_name(info))
             if fmt == 'DATA':
-                with open(out_path + ".dat", "wb") as f:
-                    f.write(data)
+                # Pack entire data into one segment:
+                # 0, 1: segment_id, total_segments
+                header = make_header(info, m, 0, 1)
+                write_split_data(header, data, out_path)
             elif fmt == 'QRCODE':
                 img = qr_image_with_caption(data,
                                             info['caption'],
@@ -293,9 +357,10 @@ def do_split(in_file_name, out_dir_path, fmt, n, m):
                 img.save(out_path + ".png")
             else:
                 raise FatalError("Invalid output format: {}".format(fmt))
+            part += 1
 
 
-def do_merge(dir, out_file_name):
+def do_merge(dirs, out_file_name):
     1
 
 
@@ -322,9 +387,9 @@ def main():
                    help='output file format, defaults to QRCODE')
     m = sp.add_parser('merge',
                       help='Merge shares and reconstruct original input.')
-    m.add_argument('in_dir', type=str, nargs=1,
+    m.add_argument('in_dirs', type=str, nargs='+',
                    metavar='DIR',
-                   help='directory containing qr images to combine')
+                   help='one or more directories containing qrcode images or .dat files to combine')
     m.add_argument('-o', type=str, nargs=1, required=False,
                    metavar='OUT_FILE',
                    help='write merged result to output file, '
@@ -335,7 +400,7 @@ def main():
         if args.command == 'split':
             do_split(args.i, args.out_dir, args.f, args.n, args.m)
         elif args.command == 'merge':
-            do_merge(args.in_dir, args.o)
+            do_merge(args.in_dirs, args.o)
         else:
             eprint("Invalid command: {}".format(args.command))
             return 1
