@@ -1,5 +1,6 @@
 import sys
 import gzip
+import zlib
 import os
 import math
 import argparse
@@ -230,28 +231,20 @@ def xor_bytes(xs, ys):
     return bytes(b1 ^ b2 for b1, b2 in zip(xs, ys))
 
 
-# return seq of chunks
-# [[split0, split1, ..., splitn],
-#  [split0, split1, ..., splitn],
-#  ...]
-def split_data_chunked(plain_data_chunks, n):
+def split_data(plain_data, n):
     n_pads = n - 1
     if n_pads < 1:
         raise FatalError(
             "Refusing to return plain_key_data without one-time padding. "
             "Check number of shares.")
 
-    for plain_data in plain_data_chunks:
-        data_len = len(plain_data)
-        crypt_data = plain_data
-        out_chunk = []
-        for _ in range(n_pads):
-            pad = secrets.token_bytes(data_len)
-            out_chunk.append(pad)
-            crypt_data = xor_bytes(crypt_data, pad)
+    crypt_data = plain_data
+    for _ in range(n_pads):
+        pad = os.urandom(len(plain_data))
+        crypt_data = xor_bytes(crypt_data, pad)
+        yield pad
 
-        out_chunk.append(crypt_data)
-        yield out_chunk
+    yield crypt_data
 
 
 # m-of-n examples:
@@ -270,7 +263,7 @@ def split_data_chunked(plain_data_chunks, n):
 # share 2:  A2,         D1, E1
 # share 3:      B2,     D2,     F1
 # share 4:          C2,     E2, F2
-def m_of_n_shares(data, n, m):
+def m_of_n_shares(m, n):
     """
     Return iterator over sequence of (share_name, batch) tuples, where batch
     is an iterator over (info, data) tuples.
@@ -280,7 +273,7 @@ def m_of_n_shares(data, n, m):
     datasets = []
     for dataset_id in dataset_ids:
         datasets.append({'dataset_id': dataset_id,
-                         'splits': split_data_chunked(data, m)})
+                         'total_fragments': m})
 
     # Shares is (array) mapping that keeps track of which datasets belong to
     # each share:
@@ -296,23 +289,6 @@ def m_of_n_shares(data, n, m):
     return (share_ids, datasets)
 
 
-def dataset_chunks(dataset):
-    data_chunks = iter(dataset['splits'])
-    data_chunk0 = list(next(data_chunks))
-    total_fragments = len(data_chunk0)
-    if len(data_chunk0) != len(dataset['share_ids']):
-        raise FatalError('fragment <-> share mapping is not 1-to-1.')
-    header_chunk = [{'dataset_id': dataset['dataset_id'],
-                     'fragment_id': fragment_id,
-                     'total_fragments': total_fragments}
-                    for fragment_id
-                    in range(len(data_chunk0))]
-    yield header_chunk
-    yield data_chunk0
-    for chunk in data_chunks:
-        yield chunk
-
-
 def share_name(share_id):
     return 'share-' + str(share_id)
 
@@ -324,52 +300,75 @@ def fragment_name(info):
     )
 
 
-def write_dataset(dataset, default_info):
-    # Pack data into one segment:
-    default_info['segment_id'] = 0
-    default_info['total_segments'] = 1
-
-    chunks = dataset_chunks(dataset)
-    header_chunk = next(chunks)
-
-    if len(header_chunk) != len(dataset['share_dirs']):
-        raise FatalError('fragment <-> share dir mapping is not 1-to-1.')
-
-    fds = []
-    for info, out_dir in zip(header_chunk, dataset['share_dirs']):
-        info = {**default_info, **info}
-        file_name = os.path.join(out_dir, fragment_name(info)) + ".dat"
-        fd = open(file_name, 'wb')
-        fds.append(fd)
-        header = Header.from_info(info)
-        fd.write(header.to_bytes())
-
-    for dataset_chunk in chunks:
-        for (fragment_chunk, fd) in zip(dataset_chunk, fds):
-            fd.write(fragment_chunk)
-
-    for fd in fds:
-        fd.close()
+def dataset_headers(dataset, default_info):
+    total_fragments = dataset['total_fragments']
+    common_info = {**default_info,
+                   'dataset_id': dataset['dataset_id'],
+                   'total_fragments': total_fragments}
+    headers = []
+    for fragment_id, share_dir in enumerate(dataset['share_dirs']):
+        headers.append(
+            Header.from_info({**common_info,
+                              'fragment_id': fragment_id}))
+    return headers
 
 
-def do_split(in_file_name, out_dir_path, fmt, n, m, is_gzip):
+def write_datasets(datasets, input_chunks, info):
+    # Each fragment will be a single segment:
+    for dataset in datasets:
+        headers = dataset_headers(dataset,
+                                  {**info,
+                                   'segment_id': 0,
+                                   'total_segments': 1})
+        fds = []
+        for header, out_dir in zip(headers, dataset['share_dirs']):
+            file_name = os.path.join(out_dir, fragment_name(header.info)) + ".dat"
+            fd = open(file_name, 'wb')
+            fds.append(fd)
+            fd.write(header.to_bytes())
+        dataset['fds'] = fds
+
+    for chunk in input_chunks:
+        for dataset in datasets:
+            fragments = split_data(chunk, dataset['total_fragments'])
+            for fd, fragment in zip(dataset['fds'], fragments):
+                fd.write(fragment)
+
+    for dataset in datasets:
+        for fd in dataset['fds']:
+            fd.close()
+
+
+def buffered_seq(fd):
+    yield fd.read1()
+
+
+def open_input(file_name, do_gzip):
+    infd = None
+    closefds = []
+    if file_name:
+        infd = open(file_name, 'rb')
+        closefds.append(infd)
+    else:
+        infd = sys.stdin.buffer
+
+    # TODO use zlib compression object
+    # if do_gzip:
+    #     infd = gzip.open(infd, 'rb')
+    #     closefds.append(infd)
+
+    def do_close():
+        for fd in closefds:
+            fd.close()
+
+    return (infd, do_close)
+
+
+def setup_share_dirs(share_ids, out_dir_path, datasets):
     if os.path.exists(out_dir_path):
         raise FatalError("Output dir {} already exists, aborting."
                          .format(out_dir_path))
     os.makedirs(out_dir_path)
-
-    indata = None
-    if in_file_name:
-        with open(in_file_name, 'r') as f:
-            indata = f.read()
-    else:
-        indata = sys.stdin.buffer.read()
-
-    if is_gzip:
-        indata = gzip.compress(indata)
-
-    # TODO: read indata in chunks vs one giant [indata] chunk
-    (share_ids, datasets) = m_of_n_shares([indata], n, m or n)
 
     share_dirs = {}
     for share in share_ids:
@@ -382,21 +381,31 @@ def do_split(in_file_name, out_dir_path, fmt, n, m, is_gzip):
                                  for share_id
                                  in dataset['share_ids']]
 
-    info = {}
-    if is_gzip:
-        info['flags'] = [Header.FLAG_GZIP_COMPRESSION]
 
-    if fmt == 'DATA':
-        for dataset in datasets:
-            write_dataset(dataset, info)
-    elif fmt == 'QRCODE':
-        None  # TODO
-        # img = qr_image_with_caption(data,
-        #                             info['caption'],
-        #                             info.get('detail'))
-        # img.save(out_path + '.png')
-    else:
-        raise FatalError("Invalid output format: {}".format(fmt))
+def do_split(in_file_name, out_dir_path, fmt, n, m, do_gzip):
+    (share_ids, datasets) = m_of_n_shares(m or n, n)
+    setup_share_dirs(share_ids, out_dir_path, datasets)
+
+    flags = []
+    if do_gzip:
+        flags.append(Header.FLAG_GZIP_COMPRESSION)
+
+    (infd, do_close) = open_input(in_file_name, do_gzip)
+    try:
+        info = {'flags': flags}
+        if fmt == 'DATA':
+            write_datasets(datasets, buffered_seq(infd), info)
+        elif fmt == 'QRCODE':
+            None  # TODO
+            # img = qr_image_with_caption(data,
+            #                             info['caption'],
+            #                             info.get('detail'))
+            # img.save(out_path + '.png')
+        else:
+            raise FatalError("Invalid output format: {}".format(fmt))
+
+    finally:
+        do_close()
 
 
 def files(dirs):
