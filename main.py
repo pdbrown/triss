@@ -134,15 +134,6 @@ class FatalError(Exception):
     pass
 
 
-def partition_all(n, xs):
-    it = iter(xs)
-    while True:
-        chunk = list(itertools.islice(it, n))
-        if not chunk:
-            return
-        yield chunk
-
-
 def assert_byte(b, msg):
     if b < 0 or b > 255:
         raise FatalError(
@@ -262,8 +253,12 @@ def split_data(plain_data, n):
 # share 4:          C2,     E2, F2
 def m_of_n_shares(m, n):
     """
-    Return iterator over sequence of (share_name, batch) tuples, where batch
-    is an iterator over (info, data) tuples.
+    Return tuple of (share_ids, datasets), where share_ids number each share
+    from 0 to n-1. The datasets output contains (n choose m) many datasets
+    represented by dictionaries with keys:
+      {dataset_id, total_fragments, share_ids}
+    The list of dataset['share_ids'] ids is a subset of share_ids the dataset
+    should be split among.
     """
     num_datasets = math.comb(n, m)    # n choose m
     dataset_ids = range(num_datasets)
@@ -272,9 +267,6 @@ def m_of_n_shares(m, n):
         datasets.append({'dataset_id': dataset_id,
                          'total_fragments': m})
 
-    # Shares is (array) mapping that keeps track of which datasets belong to
-    # each share:
-    #   share_index -> [dataset_X, dataset_Y, ...]
     share_ids = range(n)
     # share_subset is the subset of size m of shares that include the dataset
     # named by dataset_id:
@@ -371,6 +363,17 @@ def resize_chunks(size, chunk_seq):
         del buf[0]
     if buf:
         raise Exception("buf not empty at end of iteration, this is a bug.")
+
+# XXX count parts?
+def qr_image_set(qrdata, caption=None):
+    batches = partition_data(qrdata)
+    images = []
+    for (i, batch) in enumerate(batches):
+        images += [qr_image(batch)]
+        if caption:
+            text = '{} - part {} of {}'.format(caption, i + 1, len(batches))
+            images[i] = add_caption(images[i], text)
+    return images
 
 
 def write_qr_datasets(datasets, input_chunks, info):
@@ -539,22 +542,6 @@ def add_caption(img, title, body=None):
 def qr_image_with_caption(data, caption, body=None):
     img = qr_image(data)
     return add_caption(img, caption, body)
-
-
-def partition_data(data):
-    return partition_all(QR_DATA_SIZE_BYTES, data)
-
-
-def qr_image_set(qrdata, caption=None):
-    batches = partition_data(qrdata)
-    images = []
-    for (i, batch) in enumerate(batches):
-        images += [qr_image(batch)]
-        if caption:
-            text = '{} - part {} of {}'.format(caption, i + 1, len(batches))
-            images[i] = add_caption(images[i], text)
-    return images
-
 
 
 
