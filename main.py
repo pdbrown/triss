@@ -117,12 +117,9 @@ from PIL import Image, ImageDraw, ImageFont
 # algorithms consider:
 # https://en.wikipedia.org/wiki/Secret_sharing#Efficient_secret_sharing
 
-BUF_SIZE = 2
-#BUF_SIZE = 1024
-
 # From https://www.qrcode.com/en/about/version.html
 QR_SIZE_BYTES = 1273
-QR_HEADER_SIZE_BYTES = 7
+QR_HEADER_SIZE_BYTES = 9
 QR_DATA_SIZE_BYTES = QR_SIZE_BYTES - QR_HEADER_SIZE_BYTES
 QR_BOX_SIZE = 10
 QR_BORDER = 5
@@ -177,8 +174,8 @@ class Header:
 
         flags = 0
         for f in self.info['flags']:
-            flags &= f
-        self.info['flags'] = f
+            flags |= f
+        self.info['flags'] = flags
 
         for f in self.fields:
             assert_byte(self.info[f], f)
@@ -306,16 +303,16 @@ def dataset_headers(dataset, default_info):
                    'dataset_id': dataset['dataset_id'],
                    'total_fragments': total_fragments}
     headers = []
-    for fragment_id, share_dir in enumerate(dataset['share_dirs']):
+    for fragment_id in range(total_fragments):
         headers.append(
             Header.from_info({**common_info,
                               'fragment_id': fragment_id}))
     return headers
 
 
-def write_datasets(datasets, input_chunks, info):
-    # Each fragment will be a single segment:
+def write_dat_datasets(datasets, input_chunks, info):
     for dataset in datasets:
+        # Fit each fragment into exactly 1 segment:
         headers = dataset_headers(dataset,
                                   {**info,
                                    'segment_id': 0,
@@ -339,11 +336,78 @@ def write_datasets(datasets, input_chunks, info):
             fd.close()
 
 
-def buffered_seq(fd):
-    yield fd.read1()
+def resize_chunks(size, chunk_seq):
+    buf = []
+    acc = 0
+    for chunk in chunk_seq:
+        # Collect chunks in intermediate buffer.
+        buf.append(chunk)
+        acc += len(chunk)
+        # Flush buffer once we have enough chunks to make an output of size
+        # `size`.
+        while acc >= size:
+            i = 0
+            n = 0
+            xs = []
+            while n < size:  # need more data
+                xs += buf[i]
+                n += len(buf[i])
+                i += 1
+            yield xs[0:size] # chunk is ready
+            # save any trailing data
+            # i points to the element after the last one we need
+            if n == size:
+                # Then there is no data left in the last chunk we pulled
+                del buf[0:i]
+            else:
+                # Keep last slot we pulled to save remainder at front of buffer
+                del buf[0:i-1]
+                buf[0] = xs[-(n-size):]
+            acc -= size
+    if buf:
+        if not buf[0]:
+            raise Exception("Last remaining buf element is empty, this is a bug.")
+        yield buf[0]
+        del buf[0]
+    if buf:
+        raise Exception("buf not empty at end of iteration, this is a bug.")
 
 
-def open_input(file_name, do_gzip):
+def write_qr_datasets(datasets, input_chunks, info):
+    input_segments = resize_chunks(QR_DATA_SIZE_BYTES, input_chunks)
+    for segment_id, segment in enumerate(input_segments):
+        for dataset in datasets:
+            fragments = split_data(segment, dataset['total_fragments'])
+            headers = dataset_headers(dataset,
+                                      {**info,
+                                       'segment_id': segment_id,
+                                       # total_segments is unknown here, so use
+                                       # max byte value:
+                                       'total_segments': 255})
+            for header, fragment, out_dir in zip(headers, fragments, dataset['share_dirs']):
+                out_path = os.path.join(out_dir, fragment_name(header.info)) + ".png"
+                img = qr_image_with_caption(header.to_bytes() + fragment,
+                                            out_path)
+                img.save(out_path)
+
+
+def read_buffered(fd):
+    chunk = fd.read1()
+    while chunk:
+        yield chunk
+        chunk = fd.read1()
+
+
+def gzip_seq(chunk_seq):
+    gz = zlib.compressobj(level=9)
+    for chunk in chunk_seq:
+        z = gz.compress(chunk)
+        if z:
+            yield z
+    yield gz.flush()
+
+
+def open_input(file_name):
     infd = None
     closefds = []
     if file_name:
@@ -351,11 +415,6 @@ def open_input(file_name, do_gzip):
         closefds.append(infd)
     else:
         infd = sys.stdin.buffer
-
-    # TODO use zlib compression object
-    # if do_gzip:
-    #     infd = gzip.open(infd, 'rb')
-    #     closefds.append(infd)
 
     def do_close():
         for fd in closefds:
@@ -390,17 +449,16 @@ def do_split(in_file_name, out_dir_path, fmt, n, m, do_gzip):
     if do_gzip:
         flags.append(Header.FLAG_GZIP_COMPRESSION)
 
-    (infd, do_close) = open_input(in_file_name, do_gzip)
+    (infd, do_close) = open_input(in_file_name)
+    data_chunks = read_buffered(infd)
+    if do_gzip:
+        data_chunks = gzip_seq(data_chunks)
     try:
         info = {'flags': flags}
         if fmt == 'DATA':
-            write_datasets(datasets, buffered_seq(infd), info)
+            write_dat_datasets(datasets, data_chunks, info)
         elif fmt == 'QRCODE':
-            None  # TODO
-            # img = qr_image_with_caption(data,
-            #                             info['caption'],
-            #                             info.get('detail'))
-            # img.save(out_path + '.png')
+            write_qr_datasets(datasets, data_chunks, info)
         else:
             raise FatalError("Invalid output format: {}".format(fmt))
 
