@@ -17,17 +17,13 @@ from PIL import Image, ImageDraw, ImageFont
 # If output is to a .dat files instead, each fragment is packed into a single
 # segment of unlimited size (see also 'Detailed steps' below).
 #
-# | Header (9 bytes total)                                               |
-# | Version | Flags  | Dataset ID | Fragment index | Number of fragments |
-# | 1 byte  | 1 byte | 1 byte     | 1 byte         | 1 byte              |
+# | Header (20 bytes total)                                         |
+# | Version | Flags   | Dataset ID | Fragment index | Segment index |
+# | 2 byte  | 4 bytes | 4 bytes    | 4 bytes        | 4 bytes       |
 #
-# | Header, continued                   |                 | Data             |
-# | Segment index  | Number of segments | Header checksum | GZipped data     |
-# | 1 byte         | 1 byte             | 2 bytes         | 0 - 1268 bytes   |
-#
-# | Data                                                       |
-# | Uncompressed or GZipped data                               |
-# | 0 - 1265 bytes for QR code, or 0 - n bytes for .dat file   |
+# | Header          | Data                                                   |
+# | Header checksum | Uncompressed or GZipped data                           |
+# | 2 bytes         | 0 - 1253 bytes for QR code, else .dat file 0 - n bytes |
 #
 #
 # Data split algorithm overview:
@@ -117,14 +113,6 @@ from PIL import Image, ImageDraw, ImageFont
 # algorithms consider:
 # https://en.wikipedia.org/wiki/Secret_sharing#Efficient_secret_sharing
 
-# From https://www.qrcode.com/en/about/version.html
-QR_SIZE_BYTES = 1273
-QR_HEADER_SIZE_BYTES = 9
-QR_DATA_SIZE_BYTES = QR_SIZE_BYTES - QR_HEADER_SIZE_BYTES
-QR_BOX_SIZE = 10
-QR_BORDER = 5
-MARGIN = QR_BOX_SIZE * QR_BORDER
-
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
@@ -132,12 +120,6 @@ def eprint(*args, **kwargs):
 
 class FatalError(Exception):
     pass
-
-
-def assert_byte(b, msg):
-    if b < 0 or b > 255:
-        raise FatalError(
-            msg + " value '{}' is out of range, must be in [0,255].".format(b))
 
 
 def fletcher_checksum_16(xs):
@@ -154,40 +136,48 @@ def fletcher_checksum_16(xs):
 
 class Header:
     VERSION = 1
-    FLAG_GZIP_COMPRESSION = 0x01
+    FIELDS = [['version', 2],
+              ['flags', 4],
+              ['dataset_id', 4],
+              ['fragment_id', 4],
+              ['segment_id', 4]]
+    # Field bytes + 2 for checksum
+    HEADER_SIZE_BYTES = sum(n for (f, n) in FIELDS) + 2
 
-    fields = ['version', 'flags', 'dataset_id',
-              'fragment_id', 'total_fragments',
-              'segment_id', 'total_segments']
+    FLAG_GZIP_COMPRESSION = 0x00000001
+    FLAG_LAST_FRAGMENT    = 0x00000100
+    FLAG_LAST_SEGMENT     = 0x00000200
+
+    @staticmethod
+    def set_flag(info, flag):
+        flags = info.setdefault('flags', set())
+        flags.add(flag)
 
     def __init__(self, info):
         self.info = info
 
         flags = 0
-        for f in self.info['flags']:
+        self.info['flags']
+        for f in self.info.get('flags') or []:
             flags |= f
         self.info['flags'] = flags
 
-        for f in self.fields:
-            assert_byte(self.info[f], f)
+        for (f, l) in self.FIELDS:
+            self.field_bytes(f, l)
 
-        if self.info['fragment_id'] >= self.info['total_fragments']:
-            raise FatalError(
-                "fragment_id '{}' out of range, "
-                "must be less than total_fragments '{}'".format(
-                    self.info['fragment_id'],
-                    self.info['total_fragments']))
-
-        if self.info['segment_id'] >= self.info['total_segments']:
-            raise FatalError(
-                "segment_id '{}' out of range, "
-                "must be less than total_segments '{}'".format(
-                    self.info['segment_id'],
-                    self.info['total_segments']))
+    def field_bytes(self, k, l):
+        v = self.info.get(k) or 0
+        return v.to_bytes(length=l, byteorder='big')
 
     def to_bytes(self):
-        data = bytes([self.info[f] for f in self.fields])
+        data = bytes(itertools.chain.from_iterable(
+            [self.field_bytes(f, l)
+             for (f, l)
+             in self.FIELDS]))
         return data + fletcher_checksum_16(data)
+
+    def test_flag(self, flag):
+        return self.info['flags'] & flag != 0
 
     @classmethod
     def from_info(cls, info):
@@ -196,21 +186,23 @@ class Header:
 
     @classmethod
     def parse(cls, data):
-        flen = len(cls.fields)
-        clen = 2
-        if fletcher_checksum_16(data[0:flen]) != data[flen:flen+clen]:
-            raise ValueError('checksum')
-        info = {}
-        for (i, f) in zip(range(flen), cls.fields):
-            info[f] = data[i]
+        None
+        # TODO
+        # flen = len(cls.FIELDS)
+        # clen = 2
+        # if fletcher_checksum_16(data[0:flen]) != data[flen:flen+clen]:
+        #     raise ValueError('checksum')
+        # info = {}
+        # for (i, f) in zip(range(flen), cls.FIELDS):
+        #     info[f] = data[i]
 
-        (version, flags, dataset_id,
-         fragment_id, total_fragments,
-         segment_id, total_segments) = data[0:7]
-        if version != cls.VERSION:
-            raise ValueError('version')
-        {'dataset_id': dataset_id,
-         'fragment_id': fragment_id}
+        # (version, flags, dataset_id,
+        #  fragment_id, total_fragments,
+        #  segment_id, total_segments) = data[0:7]
+        # if version != cls.VERSION:
+        #     raise ValueError('version')
+        # {'dataset_id': dataset_id,
+        #  'fragment_id': fragment_id}
 
 
 def xor_bytes(xs, ys):
@@ -256,16 +248,22 @@ def m_of_n_shares(m, n):
     Return tuple of (share_ids, datasets), where share_ids number each share
     from 0 to n-1. The datasets output contains (n choose m) many datasets
     represented by dictionaries with keys:
-      {dataset_id, total_fragments, share_ids}
-    The list of dataset['share_ids'] ids is a subset of share_ids the dataset
-    should be split among.
+      {dataset_id, num_fragments, share_ids, share_parts, share_size}
+    dataset['share_ids'] : list
+      is the subset of share_ids the dataset should be split among.
+    dataset['share_parts'] : dict
+      maps each share_id in this dataset to its share "part number" (1 based!)
+    dataset['share_size'] : int
+      number of datasets (i.e. fragments) shares consist of
+    Consider 2-of-4 example above, dataset_id 0, share 2: has part #1 of share
+    size 3.
     """
     num_datasets = math.comb(n, m)    # n choose m
     dataset_ids = range(num_datasets)
     datasets = []
     for dataset_id in dataset_ids:
         datasets.append({'dataset_id': dataset_id,
-                         'total_fragments': m})
+                         'num_fragments': m})
 
     share_ids = range(n)
     # share_subset is the subset of size m of shares that include the dataset
@@ -275,7 +273,31 @@ def m_of_n_shares(m, n):
                               itertools.combinations(share_ids, m)):
         datasets[dataset_id]['share_ids'] = share_subset
 
+    set_share_part_nums(datasets, m, n, num_datasets)
+
     return (share_ids, datasets)
+
+
+def set_share_part_nums(datasets, m, n, num_datasets):
+    """
+    m_of_n_shares fn helper. Use separate fn to avoid for-loop variable name collisions.
+    """
+    # Total number of fragments between all datasets
+    total_fragments = num_datasets * m  # m fragments per dataset
+    # Number of fragments (i.e. datasets) in each share
+    share_size = int(total_fragments / n)  # n shares
+    # Build share_parts mapping for each dataset: tells which part of a share
+    # each fragment is.
+    datasets_by_share = {}
+    for dataset in datasets:
+        for share_id in dataset['share_ids']:
+            ds = datasets_by_share.setdefault(share_id, [])
+            ds.append(dataset)
+        dataset['share_size'] = share_size
+    for (share_id, datasets) in datasets_by_share.items():
+        for (part_i, dataset) in enumerate(datasets):
+            share_parts = dataset.setdefault('share_parts', {})
+            share_parts[share_id] = part_i + 1
 
 
 def share_name(share_id):
@@ -283,32 +305,32 @@ def share_name(share_id):
 
 
 def fragment_name(info):
-    return 'data-{}_frag-{}'.format(
-        info['dataset_id'],
-        info['fragment_id']
-    )
+    fragment = f"data-{info['dataset_id']}_fragment-{info['fragment_id']}"
+    if 'segment_id' in info:
+        return fragment + f"_segment-{info['segment_id']}"
+    else:
+        return fragment
 
 
 def dataset_headers(dataset, default_info):
-    total_fragments = dataset['total_fragments']
+    num_fragments = dataset['num_fragments']
     common_info = {**default_info,
-                   'dataset_id': dataset['dataset_id'],
-                   'total_fragments': total_fragments}
-    headers = []
-    for fragment_id in range(total_fragments):
-        headers.append(
-            Header.from_info({**common_info,
-                              'fragment_id': fragment_id}))
-    return headers
+                   'dataset_id': dataset['dataset_id']}
+    infos = []
+    for fragment_id in range(num_fragments):
+        infos.append({**common_info,
+                      'fragment_id': fragment_id})
+    Header.set_flag(infos[-1], Header.FLAG_LAST_FRAGMENT)
+    return [Header.from_info(info) for info in infos]
 
 
 def write_dat_datasets(datasets, input_chunks, info):
     for dataset in datasets:
         # Fit each fragment into exactly 1 segment:
-        headers = dataset_headers(dataset,
-                                  {**info,
-                                   'segment_id': 0,
-                                   'total_segments': 1})
+        # Leave segment_id None (becomes 0), and set this to be the last
+        # segment:
+        Header.set_flag(info, Header.FLAG_LAST_SEGMENT)
+        headers = dataset_headers(dataset, info)
         fds = []
         for header, out_dir in zip(headers, dataset['share_dirs']):
             file_name = os.path.join(out_dir, fragment_name(header.info)) + ".dat"
@@ -319,7 +341,7 @@ def write_dat_datasets(datasets, input_chunks, info):
 
     for chunk in input_chunks:
         for dataset in datasets:
-            fragments = split_data(chunk, dataset['total_fragments'])
+            fragments = split_data(chunk, dataset['num_fragments'])
             for fd, fragment in zip(dataset['fds'], fragments):
                 fd.write(fragment)
 
@@ -329,8 +351,34 @@ def write_dat_datasets(datasets, input_chunks, info):
 
 
 def resize_chunks(size, chunk_seq):
+    if size <= 0:
+        raise Exception("size must be > 0")
     buf = []
     acc = 0
+    def flush_one():
+        nonlocal buf, acc
+        avail = min(size, acc)
+        buflen = len(buf)
+        i = 0
+        n = 0
+        xs = []
+        while n < avail and i < buflen:  # need more data
+            xs += buf[i]
+            n += len(buf[i])
+            i += 1
+        chunk = xs[0:avail] # chunk is ready
+        # save any trailing data
+        # i points to the element after the last one we need
+        if n == avail:
+            # Then there is no data left in the last chunk we pulled
+            del buf[0:i]
+        else:
+            # Keep last slot we pulled to save remainder at front of buffer
+            del buf[0:i-1]
+            buf[0] = xs[-(n-avail):]
+        acc -= avail
+        return chunk
+
     for chunk in chunk_seq:
         # Collect chunks in intermediate buffer.
         buf.append(chunk)
@@ -338,59 +386,66 @@ def resize_chunks(size, chunk_seq):
         # Flush buffer once we have enough chunks to make an output of size
         # `size`.
         while acc >= size:
-            i = 0
-            n = 0
-            xs = []
-            while n < size:  # need more data
-                xs += buf[i]
-                n += len(buf[i])
-                i += 1
-            yield xs[0:size] # chunk is ready
-            # save any trailing data
-            # i points to the element after the last one we need
-            if n == size:
-                # Then there is no data left in the last chunk we pulled
-                del buf[0:i]
-            else:
-                # Keep last slot we pulled to save remainder at front of buffer
-                del buf[0:i-1]
-                buf[0] = xs[-(n-size):]
-            acc -= size
-    if buf:
-        if not buf[0]:
-            raise Exception("Last remaining buf element is empty, this is a bug.")
-        yield buf[0]
-        del buf[0]
+            yield flush_one()
+
+    if acc > 0:
+        # flush last chunk if any, can be fewer than `size` bytes large
+        yield flush_one()
+
+    # Assert buffer really was flushed
     if buf:
         raise Exception("buf not empty at end of iteration, this is a bug.")
 
-# XXX count parts?
-def qr_image_set(qrdata, caption=None):
-    batches = partition_data(qrdata)
-    images = []
-    for (i, batch) in enumerate(batches):
-        images += [qr_image(batch)]
-        if caption:
-            text = '{} - part {} of {}'.format(caption, i + 1, len(batches))
-            images[i] = add_caption(images[i], text)
-    return images
+
+def iter_islast(xs):
+    it = iter(xs)
+    try:
+        x = next(it)
+    except StopIteration:
+        return
+    while True:
+        try:
+            y = next(it)
+            yield (False, x)
+            x = y
+        except StopIteration:
+            yield (True, x)
+            break
 
 
-def write_qr_datasets(datasets, input_chunks, info):
+def write_qr_datasets(datasets, input_chunks, header_info, secret_name):
     input_segments = resize_chunks(QR_DATA_SIZE_BYTES, input_chunks)
-    for segment_id, segment in enumerate(input_segments):
+    for (segment_id, (is_last, segment)) in enumerate(iter_islast(input_segments)):
         for dataset in datasets:
-            fragments = split_data(segment, dataset['total_fragments'])
-            headers = dataset_headers(dataset,
-                                      {**info,
-                                       'segment_id': segment_id,
-                                       # total_segments is unknown here, so use
-                                       # max byte value:
-                                       'total_segments': 255})
-            for header, fragment, out_dir in zip(headers, fragments, dataset['share_dirs']):
+            share_size = dataset['share_size']  # number parts per share
+            share_parts = dataset['share_parts']
+            fragments = split_data(segment, dataset['num_fragments'])
+            single_segment = segment_id == 0 and is_last
+            if not single_segment:
+                header_info = {**header_info, 'segment_id': segment_id}
+            if is_last:
+                Header.set_flag(header_info, Header.FLAG_LAST_SEGMENT)
+            headers = dataset_headers(dataset, header_info)
+            for header, fragment, out_dir, share_id in \
+                    zip(headers,
+                        fragments,
+                        dataset['share_dirs'],
+                        dataset['share_ids']):
                 out_path = os.path.join(out_dir, fragment_name(header.info)) + ".png"
+                caption = f"{secret_name} - share {share_id}"
+                if not single_segment:
+                    segment_desc = f", segment {segment_id}"
+                    if segment_id == 0:
+                        segment_desc += " (first segment)"
+                    elif is_last:
+                        segment_desc += " (last segment)"
+                else:
+                    segment_desc = ""
+                subtitle = f"Part {dataset['share_parts'][share_id]} " \
+                    f"of {dataset['share_size']}" + segment_desc
                 img = qr_image_with_caption(header.to_bytes() + fragment,
-                                            out_path)
+                                            caption,
+                                            subtitle=subtitle)
                 img.save(out_path)
 
 
@@ -444,24 +499,23 @@ def setup_share_dirs(share_ids, out_dir_path, datasets):
                                  in dataset['share_ids']]
 
 
-def do_split(in_file_name, out_dir_path, fmt, n, m, do_gzip):
+def do_split(in_file_name, out_dir_path, fmt, n, m, do_gzip, secret_name):
     (share_ids, datasets) = m_of_n_shares(m or n, n)
     setup_share_dirs(share_ids, out_dir_path, datasets)
 
-    flags = []
+    header_info = {}
     if do_gzip:
-        flags.append(Header.FLAG_GZIP_COMPRESSION)
+        Header.set_flag(header_info, Header.FLAG_GZIP_COMPRESSION)
 
     (infd, do_close) = open_input(in_file_name)
     data_chunks = read_buffered(infd)
     if do_gzip:
         data_chunks = gzip_seq(data_chunks)
     try:
-        info = {'flags': flags}
         if fmt == 'DATA':
-            write_dat_datasets(datasets, data_chunks, info)
+            write_dat_datasets(datasets, data_chunks, header_info)
         elif fmt == 'QRCODE':
-            write_qr_datasets(datasets, data_chunks, info)
+            write_qr_datasets(datasets, data_chunks, header_info, secret_name)
         else:
             raise FatalError("Invalid output format: {}".format(fmt))
 
@@ -496,6 +550,14 @@ def do_merge(dirs, out_file_name):
     1
 
 
+# From https://www.qrcode.com/en/about/version.html
+QR_SIZE_BYTES = 1273
+QR_DATA_SIZE_BYTES = QR_SIZE_BYTES - Header.HEADER_SIZE_BYTES
+QR_BOX_SIZE = 10
+QR_BORDER = 5
+MARGIN = QR_BOX_SIZE * QR_BORDER
+
+
 def qr_image(qrdata):
     qr = qrcode.QRCode(
         # int in range [1,40] to determine size, set to None and use fit= to
@@ -524,24 +586,24 @@ def merge_img_y(im_top, im_bottom):
     return im
 
 
-def add_caption(img, title, body=None):
+def add_caption(img, title, subtitle=None):
     w = img.size[0]
-    h = 250
+    h = 200
     capt = Image.new('RGB', (w, h), 'white')
     d = ImageDraw.Draw(capt)
-    title_font = ImageFont.truetype('fonts/DejaVuSans.ttf', 36)
-    d.line(((MARGIN, 200), (w - MARGIN, 200)), 'gray')
-    d.text((w/2, 170), title, fill='black', font=title_font, anchor='md')
-    if body:
+    title_font = ImageFont.truetype('fonts/DejaVuSans.ttf', 24)
+    d.line(((MARGIN, 180), (w - MARGIN, 180)), 'gray')
+    d.text((w/2, 150), title, fill='black', font=title_font, anchor='md')
+    if subtitle:
         body_font = ImageFont.truetype('fonts/DejaVuSans.ttf', 12)
-        d.text((w/2, 185), title, fill='black', font=body_font, anchor='md')
+        d.text((w/2, 170), subtitle, fill='black', font=body_font, anchor='md')
 
     return merge_img_y(capt, img)
 
 
-def qr_image_with_caption(data, caption, body=None):
+def qr_image_with_caption(data, caption, subtitle=None):
     img = qr_image(data)
-    return add_caption(img, caption, body)
+    return add_caption(img, caption, subtitle)
 
 
 
@@ -570,6 +632,9 @@ def main():
     s.add_argument('-f', required=False, choices=['DATA', 'QRCODE'],
                    default='QRCODE',
                    help='output file format, defaults to QRCODE')
+    s.add_argument('-t', type=str, required=False, default='Split Secret',
+                   metavar='SECRET_NAME', help='name of secret to include on '
+                   'QRCODE images')
     m = sp.add_parser('merge',
                       help='Merge shares and reconstruct original input.')
     m.add_argument('in_dirs', type=str, nargs='+',
@@ -583,7 +648,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == 'split':
-            do_split(args.i, args.out_dir, args.f, args.n, args.m, args.z)
+            do_split(args.i, args.out_dir, args.f, args.n, args.m, args.z, args.t)
         elif args.command == 'merge':
             do_merge(args.in_dirs, args.o)
         else:
