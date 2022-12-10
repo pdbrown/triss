@@ -6,10 +6,16 @@ import math
 import argparse
 import itertools
 import secrets
+import copy
 
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
+# Deps: pyzbar wraps zbar library
+# - Windows: zbar DLLs included in python package
+# - Linux:   Need libzbar0, e.g. sudo apt install libzbar0
+# - MacOS:   Need zbar, e.g. brew install zbar
+from pyzbar import pyzbar
 
 # Data layout:
 # Largest QR code (size/version "40") can hold 1273 bytes of data in maximum
@@ -145,8 +151,8 @@ class Header:
     HEADER_SIZE_BYTES = sum(n for (f, n) in FIELDS) + 2
 
     FLAG_GZIP_COMPRESSION = 0x00000001
-    FLAG_LAST_FRAGMENT    = 0x00000100
-    FLAG_LAST_SEGMENT     = 0x00000200
+    FLAG_LAST_SEGMENT     = 0x00000100
+    FLAG_LAST_FRAGMENT    = 0x00000200
 
     @staticmethod
     def set_flag(info, flag):
@@ -156,18 +162,18 @@ class Header:
     def __init__(self, info):
         self.info = info
 
-        flags = 0
-        self.info['flags']
-        for f in self.info.get('flags') or []:
-            flags |= f
-        self.info['flags'] = flags
+        if not isinstance(self.info.get('flags'), int):
+            flags = 0
+            for f in self.info.get('flags') or []:
+                flags |= f
+            self.info['flags'] = flags
 
         for (f, l) in self.FIELDS:
             self.field_bytes(f, l)
 
     def field_bytes(self, k, l):
         v = self.info.get(k) or 0
-        return v.to_bytes(length=l, byteorder='big')
+        return v.to_bytes(length=l, byteorder='big', signed=False)
 
     def to_bytes(self):
         data = bytes(itertools.chain.from_iterable(
@@ -186,23 +192,24 @@ class Header:
 
     @classmethod
     def parse(cls, data):
-        None
-        # TODO
-        # flen = len(cls.FIELDS)
-        # clen = 2
-        # if fletcher_checksum_16(data[0:flen]) != data[flen:flen+clen]:
-        #     raise ValueError('checksum')
-        # info = {}
-        # for (i, f) in zip(range(flen), cls.FIELDS):
-        #     info[f] = data[i]
+        if len(data) < cls.HEADER_SIZE_BYTES:
+            raise ValueError(f"Can't parse header, got {len(data)} bytes but "
+                             f"needed at least {cls.HEADER_SIZE_BYTES} bytes.")
+        data = data[0:cls.HEADER_SIZE_BYTES]
+        checksum = bytes(data[-2:])  # last 2 bytes are checksum
+        payload = bytes(data[0:-2])  # first n-2 bytes are payload
+        if fletcher_checksum_16(payload) != checksum:
+            raise ValueError("Refusing to parse header with bad checksum.")
+        info = {}
+        k = 0
+        for (f, l) in cls.FIELDS:
+            info[f] = int.from_bytes(payload[k:k+l], byteorder='big', signed='false')
+            k += l
 
-        # (version, flags, dataset_id,
-        #  fragment_id, total_fragments,
-        #  segment_id, total_segments) = data[0:7]
-        # if version != cls.VERSION:
-        #     raise ValueError('version')
-        # {'dataset_id': dataset_id,
-        #  'fragment_id': fragment_id}
+        if info['version'] != cls.VERSION:
+            raise ValueError(f"Incompatible header version, got {info['version']}' "
+                             f"but expected {cls.VERSION}")
+        return cls.from_info(info)
 
 
 def xor_bytes(xs, ys):
@@ -318,18 +325,18 @@ def dataset_headers(dataset, default_info):
                    'dataset_id': dataset['dataset_id']}
     infos = []
     for fragment_id in range(num_fragments):
-        infos.append({**common_info,
-                      'fragment_id': fragment_id})
+        infos.append(copy.deepcopy({**common_info,
+                                    'fragment_id': fragment_id}))
     Header.set_flag(infos[-1], Header.FLAG_LAST_FRAGMENT)
     return [Header.from_info(info) for info in infos]
 
 
 def write_dat_datasets(datasets, input_chunks, info):
+    # Fit each fragment into exactly 1 segment:
+    # Leave segment_id None (becomes 0), and set this to be the last
+    # segment:
+    Header.set_flag(info, Header.FLAG_LAST_SEGMENT)
     for dataset in datasets:
-        # Fit each fragment into exactly 1 segment:
-        # Leave segment_id None (becomes 0), and set this to be the last
-        # segment:
-        Header.set_flag(info, Header.FLAG_LAST_SEGMENT)
         headers = dataset_headers(dataset, info)
         fds = []
         for header, out_dir in zip(headers, dataset['share_dirs']):
@@ -421,6 +428,7 @@ def write_qr_datasets(datasets, input_chunks, header_info, secret_name):
             share_parts = dataset['share_parts']
             fragments = split_data(segment, dataset['num_fragments'])
             single_segment = segment_id == 0 and is_last
+            header_info = copy.deepcopy(header_info)
             if not single_segment:
                 header_info = {**header_info, 'segment_id': segment_id}
             if is_last:
@@ -523,32 +531,160 @@ def do_split(in_file_name, out_dir_path, fmt, n, m, do_gzip, secret_name):
         do_close()
 
 
-def files(dirs):
+def list_files(dirs):
+    """
+    Yield seq of 'file infos': [{path, type} ...]
+    """
     for d in dirs:
         for f in os.listdir(d):
+            p = os.path.join(d, f)
             if f.endswith('.png'):
-                yield (f, 'QRCODE')
+                yield {'path': p, 'type': 'QRCODE'}
             elif f.endswith('.dat'):
-                yield (f, 'DATA')
+                yield {'path': p, 'type': 'DATA'}
 
 
-def decode_qr_code(path):
-    bytes([])  # TODO
-
-
-def read_file(path, typ):
-    if typ == 'QRCODE':
-        return decode_qr_code(path)
-    elif typ == 'DATA':
-        with open(path, 'rb') as f:
-            return f.read()
+def open_dat_or_qrcode(finfo):
+    """
+    Return pair of (buffered_seq, do_close). do_close is 0 arg fn to call to
+    release underlying resources.
+    """
+    if finfo['type'] == 'QRCODE':
+        return (iter(decode_qr_codes(finfo['path']) or []), lambda : None)
+    elif finfo['type'] == 'DATA':
+        (infd, do_close) = open_input(finfo['path'])
+        return (read_buffered(infd), do_close)
     else:
-        raise FatalError('')
+        raise FatalError(f"Unknown file type for finfo {finfo}")
 
 
+def decode_headers(finfos):
+    for finfo in finfos:
+        (data, do_close) = open_dat_or_qrcode(finfo)
+        try:
+            header_chunk = next(resize_chunks(Header.HEADER_SIZE_BYTES, data))
+            finfo['header'] = Header.parse(header_chunk)
+            yield finfo
+        except StopIteration:
+            eprint(f"Failed to read file at {finfo['path']}, skipping it.")
+        except ValueError as e:
+            eprint(f"Failed to decode header from file at {finfo['path']}, "
+                   f"skipping: {str(e)}")
+        finally:
+            do_close()
+
+
+def find_dataset_parts(finfos):
+    # Declare helpers first:
+    def ok_parts_by_id(xs_by_id, is_last_part, name):
+        # Ensure we got at least 1 part
+        if not xs_by_id:
+            print(f"Found no {name}s.")
+            return False
+        # Check that part ids are contiguous 0 - n
+        n_parts = len(xs_by_id)
+        for i in range(n_parts):
+            if i not in xs_by_id:
+                print(f"Missing {name} at id {i}, "
+                      f"expected to find {name}s 0 through {n_parts - 1}.")
+                return False
+        # Check no parts are missing past end of available parts
+        last_part = xs_by_id[n_parts - 1]
+        is_last = is_last_part(last_part)
+        if not is_last:
+            print(f"Last {name} found didn't have 'last' flag set, missing "
+                  f"{name}s after {name}_id {n_parts - 1}.")
+        return is_last
+
+    def is_last_frag(frag):
+        print("Checking last fragment.")
+        if not frag:
+            print("No fragment supplied to check if it was last.")
+            return False
+        for seg_id, seg in frag.items():
+            if not seg['header'].test_flag(Header.FLAG_LAST_FRAGMENT):
+                print(f"Segment {seg_id} of fragment was not marked as "
+                      "'last fragment'.")
+                return False
+        return True
+
+    def is_last_seg(seg):
+        print("Checking last segment.")
+        if not seg:
+            print("No segment supplied to check if it was last.")
+            return False
+        is_last = seg['header'].test_flag(Header.FLAG_LAST_SEGMENT)
+        if not is_last:
+            print(f"Segment {seg['header'].info} was not marked as "
+                  "'last segment'.")
+        return is_last
+
+    def is_dataset_complete(dataset):
+        # Check all fragments are available:
+        print("Checking fragments.")
+        if not ok_parts_by_id(dataset, is_last_frag, "fragment"):
+            return False
+        # Check all segments are available:
+        for (frag_id, frag) in dataset.items():
+            print(f"Checking segments of fragment {frag_id}.")
+            if not ok_parts_by_id(frag, is_last_seg, "segment"):
+                return False
+        # Check all fragments have same number of segments:
+        frag_size = len(next(iter(dataset.values())))
+        for (frag_id, frag) in dataset.items():
+            if len(frag) != frag_size:
+                print(f"Expected each fragment to have {frag_size} segments, "
+                      f"but fragment {frag_id} had {len(frag)} segments.")
+                return False
+        return True
+
+    # Begin top level `find_dataset_parts` fn:
+    ds = {}
+    for finfo in finfos:
+        header = finfo['header']
+        dataset = ds.setdefault(header.info['dataset_id'], {})
+        fragment = dataset.setdefault(header.info['fragment_id'], {})
+        fragment[header.info['segment_id']] = finfo
+    out_dataset = None
+    print("Looking for complete dataset among inputs.")
+    for (dataset_id, dataset) in ds.items():
+        print(f"Checking dataset {dataset_id}.")
+        if is_dataset_complete(dataset):
+            print(f"Found complete dataset with id {dataset_id}! "
+                  "Decoding it.")
+            out_dataset = dataset
+            break
+    if not out_dataset:
+        print("Failed to find a complete dataset among inputs, can't proceed.")
+        return None
+    parts = []
+    for frag_id in range(len(out_dataset)):
+        frag = out_dataset[frag_id]
+        frags = []
+        for seg_id in range(len(frag)):
+            seg = frag[seg_id]
+            frags.append(seg)
+        parts.append(frags)
+    return parts
+
+
+# Find files.
+# Look for DATA format first, then QRCODE.
+# DATA files: open fds, decode headers, assemble dataset, decode data.
+# QRCODE files: decode all qrcodes in memory, decode headers, assemble
+# dataset. Then decode qrcodes in dataset again, decode data.
 def do_merge(dirs, out_file_name):
-    1
+    finfos = decode_headers(list_files(dirs))
+    dataset_parts = find_dataset_parts(finfos)
+    if not dataset_parts:
+        return None
+    for fragment in dataset_parts:
+        None  # TODO resume here
 
+    return dataset_parts
+
+
+# val = do_merge(['testout/share-0', 'testout/share-1'], 'out.txt')
 
 # From https://www.qrcode.com/en/about/version.html
 QR_SIZE_BYTES = 1273
@@ -606,7 +742,14 @@ def qr_image_with_caption(data, caption, subtitle=None):
     return add_caption(img, caption, subtitle)
 
 
-
+def decode_qr_codes(path):
+    """
+    Decode QR codes in image at path PATH, return list of byte arrays, one per
+    decoded QR code.
+    """
+    return [decoded.data
+            for decoded
+            in pyzbar.decode(Image.open(path))]
 
 
 def main():
