@@ -234,6 +234,16 @@ def split_data(plain_data, n):
     yield crypt_data
 
 
+def merge_data(fragments):
+    it = iter(fragments)
+    plain_data = next(it)
+    for frag in it:
+        plain_data = xor_bytes(plain_data, frag)
+    return plain_data
+
+# list(merge_data(split_data([0, 1, 2, 3, 4, 5, 6, 7, 8], 3)))
+
+
 # m-of-n examples:
 # 2-of-2:
 # share 1: A1
@@ -357,51 +367,80 @@ def write_dat_datasets(datasets, input_chunks, info):
             fd.close()
 
 
-def resize_chunks(size, chunk_seq):
-    if size <= 0:
-        raise Exception("size must be > 0")
+def flush_bytes(buf, size, n):
+    """
+    Remove up to first N bytes from BUF. BUF is a list of byte strings, and
+    SIZE is total number of bytes in BUF.
+    Return (chunk, buf, size).
+    - chunk is first n bytes of buf.
+    - buf is same BUF reference. The first n bytes have been removed in place.
+    - new size.
+    """
+    if n < 0:
+        raise Exception("n must be >= 0")
+    avail = min(n, size)
+    buflen = len(buf)
+    i = 0
+    k = 0
+    xs = []
+    while k < avail and i < buflen:  # get more data
+        xs += buf[i]
+        k += len(buf[i])
+        i += 1
+    chunk = xs[0:avail] # chunk is ready
+    # save any trailing data
+    # i points to the element after the last one we need
+    if k == avail:
+        # Then there is no data left in the last chunk we pulled
+        del buf[0:i]
+    else:
+        # Keep last slot we pulled to save remainder at front of buffer
+        del buf[0:i-1]
+        buf[0] = xs[-(k-avail):]
+    size -= avail
+    return (chunk, buf, size)
+
+
+def resize_chunks(chunk_size, chunk_seq):
+    if chunk_size <= 0:
+        raise Exception("chunk_size must be > 0")
     buf = []
     acc = 0
-    def flush_one():
-        nonlocal buf, acc
-        avail = min(size, acc)
-        buflen = len(buf)
-        i = 0
-        n = 0
-        xs = []
-        while n < avail and i < buflen:  # need more data
-            xs += buf[i]
-            n += len(buf[i])
-            i += 1
-        chunk = xs[0:avail] # chunk is ready
-        # save any trailing data
-        # i points to the element after the last one we need
-        if n == avail:
-            # Then there is no data left in the last chunk we pulled
-            del buf[0:i]
-        else:
-            # Keep last slot we pulled to save remainder at front of buffer
-            del buf[0:i-1]
-            buf[0] = xs[-(n-avail):]
-        acc -= avail
-        return chunk
 
     for chunk in chunk_seq:
         # Collect chunks in intermediate buffer.
         buf.append(chunk)
         acc += len(chunk)
         # Flush buffer once we have enough chunks to make an output of size
-        # `size`.
-        while acc >= size:
-            yield flush_one()
+        # `chunk_size`.
+        while acc >= chunk_size:
+            (chunk, buf, acc) = flush_bytes(buf, acc, chunk_size)
+            yield chunk
 
     if acc > 0:
-        # flush last chunk if any, can be fewer than `size` bytes large
-        yield flush_one()
+        # flush last chunk if any, can be fewer than `chunk_size` bytes large
+        (chunk, buf, acc) = flush_bytes(buf, acc, chunk_size)
+        yield chunk
 
     # Assert buffer really was flushed
     if buf:
         raise Exception("buf not empty at end of iteration, this is a bug.")
+
+
+def skip_bytes(chunk_seq, n):
+    it = iter(chunk_seq)
+    buf = []
+    acc = 0
+    try:
+        while acc < n:
+            chunk = next(it)
+            buf.append(chunk)
+            acc += len(chunk)
+    except StopIteration:
+        return
+    (_, buf, _) = flush_bytes(buf, acc, n)
+    for chunk in itertools.chain(buf, it):
+        yield chunk
 
 
 def iter_islast(xs):
@@ -575,97 +614,145 @@ def decode_headers(finfos):
 
 
 def find_dataset_parts(finfos):
-    # Declare helpers first:
+    """
+    Find first complete dataset among files described by FINFOS.
+    Return a list of segment fragement collections. Each element of the outer
+    list is the collection of fragments to combine to reconstruct the original
+    segment.
+    E.g.:
+    [[seg0_frag0, seg0_frag1],
+     [seg1_frag0, seg1_frag1]]
+    """
+    # Declare helpers first
+    indent = 0
+    def iprint(*objects, **kwargs):
+        nonlocal indent
+        print(" "*indent, *objects, sep='', **kwargs)
+
+    def with_indent(i):
+        def set_indent(f):
+            def wrapper(*args, **kwargs):
+                try:
+                    nonlocal indent
+                    prev = indent
+                    indent = i
+                    return f(*args, **kwargs)
+                finally:
+                    indent = prev
+            return wrapper
+        return set_indent
+
+    @with_indent(4)
     def ok_parts_by_id(xs_by_id, is_last_part, name):
-        # Ensure we got at least 1 part
         if not xs_by_id:
-            print(f"Found no {name}s.")
+            iprint(f"Found no {name}s.")
             return False
-        # Check that part ids are contiguous 0 - n
         n_parts = len(xs_by_id)
+        iprint(f"Got {n_parts} {name}s, ensure contiguous ids from 0 to "
+               f"{n_parts - 1}.")
         for i in range(n_parts):
             if i not in xs_by_id:
-                print(f"Missing {name} at id {i}, "
-                      f"expected to find {name}s 0 through {n_parts - 1}.")
+                iprint(f"Missing {name} at id {i}, "
+                       f"expected to find {name}s 0 through {n_parts - 1}.")
                 return False
         # Check no parts are missing past end of available parts
+        iprint(f"Ensure set of {name}s is complete.")
         last_part = xs_by_id[n_parts - 1]
         is_last = is_last_part(last_part)
         if not is_last:
-            print(f"Last {name} found didn't have 'last' flag set, missing "
-                  f"{name}s after {name}_id {n_parts - 1}.")
+            iprint(f"Last {name} found didn't have 'last' flag set, missing "
+                   f"{name}s after {name}_id {n_parts - 1}.")
         return is_last
 
-    def is_last_frag(frag):
-        print("Checking last fragment.")
-        if not frag:
-            print("No fragment supplied to check if it was last.")
+    @with_indent(6)
+    def is_last_seg(seg):
+        if not seg:
+            iprint("No segment supplied to check if it was last one.")
             return False
-        for seg_id, seg in frag.items():
-            if not seg['header'].test_flag(Header.FLAG_LAST_FRAGMENT):
-                print(f"Segment {seg_id} of fragment was not marked as "
-                      "'last fragment'.")
+        for frag_id, frag in seg.items():
+            if not frag['header'].test_flag(Header.FLAG_LAST_SEGMENT):
+                iprint(f"Fragment {frag_id} of segment {seg['header'].info} "
+                       "was not marked as belonging to last segment.")
                 return False
         return True
 
-    def is_last_seg(seg):
-        print("Checking last segment.")
-        if not seg:
-            print("No segment supplied to check if it was last.")
+    @with_indent(6)
+    def is_last_frag(frag):
+        if not frag:
+            iprint("No fragment supplied to check if it was last.")
             return False
-        is_last = seg['header'].test_flag(Header.FLAG_LAST_SEGMENT)
+        is_last = frag['header'].test_flag(Header.FLAG_LAST_FRAGMENT)
         if not is_last:
-            print(f"Segment {seg['header'].info} was not marked as "
-                  "'last segment'.")
+            iprint(f"Fragment {frag['header'].info} was not marked as "
+                   "'last fragment'.")
         return is_last
 
+    @with_indent(2)
     def is_dataset_complete(dataset):
-        # Check all fragments are available:
-        print("Checking fragments.")
-        if not ok_parts_by_id(dataset, is_last_frag, "fragment"):
+        iprint("Ensure all segments are available.")
+        if not ok_parts_by_id(dataset, is_last_seg, "segment"):
             return False
-        # Check all segments are available:
-        for (frag_id, frag) in dataset.items():
-            print(f"Checking segments of fragment {frag_id}.")
-            if not ok_parts_by_id(frag, is_last_seg, "segment"):
+        # Check all fragments are available in each segment:
+        for (seg_id, seg) in dataset.items():
+            iprint(f"Ensure all fragments of segment {seg_id} are available.")
+            if not ok_parts_by_id(seg, is_last_frag, "fragment"):
                 return False
-        # Check all fragments have same number of segments:
-        frag_size = len(next(iter(dataset.values())))
-        for (frag_id, frag) in dataset.items():
-            if len(frag) != frag_size:
-                print(f"Expected each fragment to have {frag_size} segments, "
-                      f"but fragment {frag_id} had {len(frag)} segments.")
+        # Check all segments have same number of fragments:
+        seg_size = len(next(iter(dataset.values())))
+        for (seg_id, seg) in dataset.items():
+            if len(seg) != seg_size:
+                iprint(f"Expected each segment to have {seg_size} segments, "
+                       f"but segment {seg_id} had {len(seg)} fragments.")
                 return False
         return True
 
     # Begin top level `find_dataset_parts` fn:
-    ds = {}
+    ds = {}  # datasets by dataset_id
     for finfo in finfos:
         header = finfo['header']
         dataset = ds.setdefault(header.info['dataset_id'], {})
-        fragment = dataset.setdefault(header.info['fragment_id'], {})
-        fragment[header.info['segment_id']] = finfo
+        segment = dataset.setdefault(header.info['segment_id'], {})
+        segment[header.info['fragment_id']] = finfo
     out_dataset = None
     print("Looking for complete dataset among inputs.")
     for (dataset_id, dataset) in ds.items():
-        print(f"Checking dataset {dataset_id}.")
+        print(f"Check dataset {dataset_id}.")
         if is_dataset_complete(dataset):
-            print(f"Found complete dataset with id {dataset_id}! "
-                  "Decoding it.")
+            print(f"Found complete dataset with id {dataset_id}!")
             out_dataset = dataset
             break
     if not out_dataset:
         print("Failed to find a complete dataset among inputs, can't proceed.")
         return None
     parts = []
-    for frag_id in range(len(out_dataset)):
-        frag = out_dataset[frag_id]
+    n_segments = len(out_dataset[0])
+    for seg_id in range(len(out_dataset)):
+        seg = out_dataset[seg_id]
         frags = []
-        for seg_id in range(len(frag)):
-            seg = frag[seg_id]
-            frags.append(seg)
+        for frag_id in range(len(seg)):
+            frag = seg[frag_id]
+            frags.append(frag)
         parts.append(frags)
     return parts
+
+
+def data_fragment_chunks(fragments):
+    open_frags = []
+    for finfo in fragments:
+        (data, do_close) = open_dat_or_qrcode(finfo)
+        data = skip_bytes(data, Header.HEADER_SIZE_BYTES)
+        open_frags.append((data, do_close))
+    try:
+        while True:
+            next_chunks = []
+            for (data, _) in open_frags:
+                next_chunks.append(next(data))
+            yield next_chunks
+    except StopIteration:
+        return
+    finally:
+        for (_, do_close) in open_frags:
+            do_close()
 
 
 # Find files.
@@ -678,16 +765,23 @@ def do_merge(dirs, out_file_name):
     dataset_parts = find_dataset_parts(finfos)
     if not dataset_parts:
         return None
-    for fragment in dataset_parts:
-        None  # TODO resume here
+    with open(out_file_name, 'wb') as f:
+        for segment in dataset_parts:
+            print(segment)
+            print(len(segment))
+            for chunks in data_fragment_chunks(segment):
+                print(chunks)
+                for c in chunks:
+                    print(len(c))
+                reconstructed = merge_data(chunks)
+                f.write(reconstructed)
 
-    return dataset_parts
-
-
-# val = do_merge(['testout/share-0', 'testout/share-1'], 'out.txt')
+# TODO debug this:
+#do_merge(['testout/share-0', 'testout/share-1'], 'out.txt')
 
 # From https://www.qrcode.com/en/about/version.html
-QR_SIZE_BYTES = 1273
+#QR_SIZE_BYTES = 1273
+QR_SIZE_BYTES = 22
 QR_DATA_SIZE_BYTES = QR_SIZE_BYTES - Header.HEADER_SIZE_BYTES
 QR_BOX_SIZE = 10
 QR_BORDER = 5
