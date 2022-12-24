@@ -1,3 +1,10 @@
+attrs==22.2.0
+exceptiongroup==1.1.0
+iniconfig==1.1.1
+packaging==22.0
 Pillow==9.3.0
+pluggy==1.0.0
+pytest==7.2.0
 pyzbar==0.1.9
 qrcode==7.3.1
+tomli==2.0.1
