@@ -225,9 +225,10 @@ def split_data(plain_data, n):
             "Refusing to return plain_key_data without one-time padding. "
             "Check number of shares.")
 
-    crypt_data = plain_data
+    crypt_data = list(plain_data)
+    k = len(crypt_data)
     for _ in range(n_pads):
-        pad = os.urandom(len(plain_data))
+        pad = secrets.token_bytes(k)
         crypt_data = xor_bytes(crypt_data, pad)
         yield pad
 
@@ -382,7 +383,7 @@ def flush_bytes(buf, size, n):
     buflen = len(buf)
     i = 0
     k = 0
-    xs = []
+    xs = b''
     while k < avail and i < buflen:  # get more data
         xs += buf[i]
         k += len(buf[i])
@@ -401,7 +402,7 @@ def flush_bytes(buf, size, n):
     return (chunk, buf, size)
 
 
-def resize_chunks(chunk_size, chunk_seq):
+def resize_chunks(chunk_seq, chunk_size):
     if chunk_size <= 0:
         raise Exception("chunk_size must be > 0")
     buf = []
@@ -409,7 +410,8 @@ def resize_chunks(chunk_size, chunk_seq):
 
     for chunk in chunk_seq:
         # Collect chunks in intermediate buffer.
-        buf.append(chunk)
+        if chunk:  # skip empty chunks
+            buf.append(chunk)
         acc += len(chunk)
         # Flush buffer once we have enough chunks to make an output of size
         # `chunk_size`.
@@ -460,7 +462,7 @@ def iter_islast(xs):
 
 
 def write_qr_datasets(datasets, input_chunks, header_info, secret_name):
-    input_segments = resize_chunks(QR_DATA_SIZE_BYTES, input_chunks)
+    input_segments = resize_chunks(input_chunks, QR_DATA_SIZE_BYTES)
     for (segment_id, (is_last, segment)) in enumerate(iter_islast(input_segments)):
         for dataset in datasets:
             share_size = dataset['share_size']  # number parts per share
@@ -601,7 +603,7 @@ def decode_headers(finfos):
     for finfo in finfos:
         (data, do_close) = open_dat_or_qrcode(finfo)
         try:
-            header_chunk = next(resize_chunks(Header.HEADER_SIZE_BYTES, data))
+            header_chunk = next(resize_chunks(data, Header.HEADER_SIZE_BYTES))
             finfo['header'] = Header.parse(header_chunk)
             yield finfo
         except StopIteration:
