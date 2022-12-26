@@ -507,8 +507,10 @@ def write_qr_datasets(datasets, input_chunks, header_info, secret_name):
                 img.save(out_path)
 
 
-def read_buffered(fd):
+def read_buffered(fd, fail_empty=None):
     chunk = fd.read1()
+    if fail_empty and not chunk:
+        raise FatalError(fail_empty)
     while chunk:
         yield chunk
         chunk = fd.read1()
@@ -575,7 +577,9 @@ def do_split(in_file_name, out_dir_path, fmt, n, m, do_gzip, secret_name):
         Header.set_flag(header_info, Header.FLAG_GZIP_COMPRESSION)
 
     (infd, do_close) = open_input(in_file_name)
-    data_chunks = read_buffered(infd)
+    data_chunks = read_buffered(
+        infd,
+        fail_empty="Input is empty, nothing to do, aborting.")
     if do_gzip:
         data_chunks = gzip_seq(data_chunks)
     try:

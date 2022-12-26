@@ -171,7 +171,7 @@ def m_and_n(draw, n=st.integers(min_value=2, max_value=10)):
 ## DATA
 ### N of N
 #### Uncompressed
-@given(xs=st.binary(), n=st.integers(min_value=2, max_value=20))
+@given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=20))
 @settings(max_examples=200)
 def test_split_data_n_of_n(xs, n):
     assert_split_merge(xs, fmt='DATA',
@@ -184,14 +184,14 @@ def test_split_data_n_of_n(xs, n):
        k=st.integers(min_value=0, max_value=99))
 @settings(max_examples=20)
 def test_split_large_data_n_of_n(n, j, k):
-    xs = os.urandom(1000000 + j * 100 + k)
+    xs = os.urandom(1000000 + j * 100 + k + 1)
     assert_split_merge(xs, fmt='DATA',
                        n=n, m=n,
                        do_gzip=False)
 
 
 #### Gzip
-@given(xs=st.binary(), n=st.integers(min_value=2, max_value=20))
+@given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=20))
 @settings(max_examples=200)
 def test_split_data_gzip_n_of_n(xs, n):
     assert_split_merge(xs, fmt='DATA',
@@ -204,7 +204,7 @@ def test_split_data_gzip_n_of_n(xs, n):
        k=st.integers(min_value=0, max_value=100))
 @settings(max_examples=20)
 def test_split_large_data_gzip_n_of_n(n, j, k):
-    xs = os.urandom(100000 + j * 100 + k)
+    xs = os.urandom(100000 + j * 100 + k + 1)
     assert_split_merge(xs, fmt='DATA',
                        n=n, m=n,
                        do_gzip=True)
@@ -216,7 +216,7 @@ def test_split_large_data_gzip_n_of_n(n, j, k):
 # max number of file descriptors to 1024 per process. Keep n <=8 to avoid
 # running out of file descriptors. (The python interpreter opens many files
 # too, so we have to stay well under (n choose m) = 1024).
-@given(xs=st.binary(), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
+@given(xs=st.binary(min_size=1), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
 @settings(max_examples=200)
 def test_split_data_m_of_n(xs, m_n):
     (m, n) = m_n
@@ -231,14 +231,14 @@ def test_split_data_m_of_n(xs, m_n):
 @settings(max_examples=20)
 def test_split_large_data_n_of_n(m_n, j, k):
     (m, n) = m_n
-    xs = os.urandom(10000 + j * 100 + k)
+    xs = os.urandom(10000 + j * 100 + k + 1)
     assert_split_merge(xs, fmt='DATA',
                        m=m, n=n,
                        do_gzip=False)
 
 
 #### Gzip
-@given(xs=st.binary(), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
+@given(xs=st.binary(min_size=1), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
 @settings(max_examples=200)
 def test_split_data_m_of_n(xs, m_n):
     (m, n) = m_n
@@ -253,48 +253,50 @@ def test_split_data_m_of_n(xs, m_n):
 @settings(max_examples=20)
 def test_split_large_data_n_of_n(m_n, j, k):
     (m, n) = m_n
-    xs = os.urandom(10000 + j * 100 + k)
+    xs = os.urandom(10000 + j * 100 + k + 1)
     assert_split_merge(xs, fmt='DATA',
                        m=m, n=n,
                        do_gzip=True)
 
 
-# ## QRCODE
-# ### N of N
-# #### Uncompressed
-# @given(xs=st.binary(), n=st.integers(min_value=2, max_value=10))
-# @settings(max_examples=5)
-# def test_split_qrcode_n_of_n(xs, n):
-#     assert_split_merge(xs, fmt='QRCODE',
-#                        n=n, m=n,
-#                        do_gzip=False)
+## QRCODE
+### N of N
+#### Uncompressed
+@given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=5))
+@settings(max_examples=3, deadline=10000)
+def test_split_qrcode_n_of_n(xs, n):
+    assert_split_merge(xs, fmt='QRCODE',
+                       n=n, m=n,
+                       do_gzip=False)
 
 
-# #### Gzip
-# @given(xs=st.binary(), n=st.integers(min_value=2, max_value=10))
-# @settings(max_examples=5)
-# def test_split_qrcode_gzip_n_of_n(xs, n):
-#     assert_split_merge(xs, fmt='QRCODE',
-#                        n=n, m=n,
-#                        do_gzip=True)
+#### Gzip
+@given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=5))
+@settings(max_examples=3, deadline=10000)
+def test_split_qrcode_gzip_n_of_n(xs, n):
+    assert_split_merge(xs, fmt='QRCODE',
+                       n=n, m=n,
+                       do_gzip=True)
 
 
-# ### M of N
-# #### Uncompressed
-# @given(xs=st.binary(), m_n=m_and_n(n=st.integers(min_value=2, max_value=6)))
-# @settings(max_examples=5)
-# def test_split_qrcode_m_of_n(xs, m_n):
-#     (m, n) = m_n
-#     assert_split_merge(xs, fmt='QRCODE',
-#                        m=m, n=n,
-#                        do_gzip=False)
+### M of N
+#### Uncompressed
+@given(xs=st.binary(min_size=1, max_size=5000),
+       m_n=m_and_n(n=st.integers(min_value=2, max_value=5)))
+@settings(max_examples=3, deadline=10000)
+def test_split_qrcode_m_of_n(xs, m_n):
+    (m, n) = m_n
+    assert_split_merge(xs, fmt='QRCODE',
+                       m=m, n=n,
+                       do_gzip=False)
 
 
-# #### Gzip
-# @given(xs=st.binary(), m_n=m_and_n(n=st.integers(min_value=2, max_value=6)))
-# @settings(max_examples=5)
-# def test_split_qrcode_m_of_n(xs, m_n):
-#     (m, n) = m_n
-#     assert_split_merge(xs, fmt='QRCODE',
-#                        m=m, n=n,
-#                        do_gzip=True)
+#### Gzip
+@given(xs=st.binary(min_size=1, max_size=5000),
+       m_n=m_and_n(n=st.integers(min_value=2, max_value=5)))
+@settings(max_examples=3, deadline=10000)
+def test_split_qrcode_gzip_m_of_n(xs, m_n):
+    (m, n) = m_n
+    assert_split_merge(xs, fmt='QRCODE',
+                       m=m, n=n,
+                       do_gzip=True)
