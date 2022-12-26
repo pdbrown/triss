@@ -7,15 +7,20 @@ import argparse
 import itertools
 import secrets
 import copy
+import subprocess
 
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
-# Deps: pyzbar wraps zbar library
-# - Windows: zbar DLLs included in python package
-# - Linux:   Need libzbar0, e.g. sudo apt install libzbar0
-# - MacOS:   Need zbar, e.g. brew install zbar
-from pyzbar import pyzbar
+# Deps: External `zbar` program is needed to decode QR codes.
+# Need version >= 0.23.1 released 2020-04-20 which has support for decoding
+# binary data from QR Code.
+# See also https://github.com/mchehab/zbar/tree/6092b033b35fdcc7ee95fc366ed303f475739bfc
+# - Linux:   sudo apt install zbar-tools
+# - MacOS:   brew install zbar
+# - Windows: ???
+# NOTE there is a library that could have worked, pyzbar, but it doesn't handle
+# binary qr codes properly.
 
 # Data layout:
 # Largest QR code (size/version "40") can hold 1273 bytes of data in maximum
@@ -580,7 +585,7 @@ def do_split(in_file_name, out_dir_path, fmt, n, m, do_gzip, secret_name):
             write_qr_datasets(datasets, data_chunks, header_info, secret_name)
         else:
             raise FatalError("Invalid output format: {}".format(fmt))
-
+        return 0
     finally:
         do_close()
 
@@ -604,7 +609,7 @@ def open_dat_or_qrcode(finfo):
     release underlying resources.
     """
     if finfo['type'] == 'QRCODE':
-        return (iter(decode_qr_codes(finfo['path']) or []), lambda : None)
+        return (iter([decode_qr_code(finfo['path'])]), lambda : None)
     elif finfo['type'] == 'DATA':
         (infd, do_close) = open_input(finfo['path'])
         return (read_buffered(infd), do_close)
@@ -817,6 +822,8 @@ def merged_segments(fragmented_segments):
 def do_merge(dirs, out_file_name):
     finfos = decode_headers(list_files(dirs))
     dataset_parts = find_dataset_parts(finfos)
+    if not dataset_parts:
+        return 1
     do_gunzip = dataset_parts[0][0]['header'].test_flag(
         Header.FLAG_GZIP_COMPRESSION)
     if not dataset_parts:
@@ -844,19 +851,15 @@ def do_merge(dirs, out_file_name):
                 f.write(chunk)
 
 
-# TODO debug this:
-#do_merge(['testout/share-0', 'testout/share-1'], 'out.txt')
-
 # From https://www.qrcode.com/en/about/version.html
-#QR_SIZE_BYTES = 1273
-QR_SIZE_BYTES = 22
+QR_SIZE_BYTES = 1273
 QR_DATA_SIZE_BYTES = QR_SIZE_BYTES - Header.HEADER_SIZE_BYTES
 QR_BOX_SIZE = 10
 QR_BORDER = 5
 MARGIN = QR_BOX_SIZE * QR_BORDER
 
 
-def qr_image(qrdata):
+def qr_image(data):
     qr = qrcode.QRCode(
         # int in range [1,40] to determine size, set to None and use fit= to
         # determine automatically.
@@ -867,7 +870,9 @@ def qr_image(qrdata):
         box_size=QR_BOX_SIZE,
         border=QR_BORDER,
     )
-
+    qrdata = qrcode.util.QRData(data,
+                                mode=qrcode.util.MODE_8BIT_BYTE,
+                                check_data=False)
     qr.add_data(qrdata)
     qr.make(fit=True)
 
@@ -904,14 +909,16 @@ def qr_image_with_caption(data, caption, subtitle=None):
     return add_caption(img, caption, subtitle)
 
 
-def decode_qr_codes(path):
+def decode_qr_code(path):
     """
-    Decode QR codes in image at path PATH, return list of byte arrays, one per
-    decoded QR code.
+    Decode QR code in image at path PATH, return byte array.
+    NOTE there must only be 1 QR code in the image! While zbarimg will decode
+    multiple QR codes, in binary mode it concatenates their payloads, so
+    there's no easy way to tell where one payload ends and the next begins
     """
-    return [decoded.data
-            for decoded
-            in pyzbar.decode(Image.open(path))]
+    return subprocess.check_output(
+        ['zbarimg', '--raw', '-Sbinary', path],
+        stderr=subprocess.DEVNULL)
 
 
 def main():
@@ -944,8 +951,9 @@ def main():
                       help='Merge shares and reconstruct original input.')
     m.add_argument('in_dirs', type=str, nargs='+',
                    metavar='DIR',
-                   help='one or more directories containing qrcode images or .dat files to combine')
-    m.add_argument('-o', type=str, nargs=1, required=False,
+                   help='one or more directories containing qrcode images or '
+                   '.dat files to combine')
+    m.add_argument('-o', type=str, required=False,
                    metavar='OUT_FILE',
                    help='write merged result to output file, '
                    'or stdout if omitted')
@@ -953,9 +961,10 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == 'split':
-            do_split(args.i, args.out_dir, args.f, args.n, args.m, args.z, args.t)
+            return do_split(args.i, args.out_dir, args.f,
+                            args.n, args.m, args.z, args.t)
         elif args.command == 'merge':
-            do_merge(args.in_dirs, args.o)
+            return do_merge(args.in_dirs, args.o)
         else:
             eprint('Invalid command: {}'.format(args.command))
             return 1
