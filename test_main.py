@@ -1,7 +1,9 @@
 import os
 import copy
+import tempfile
 import main
 from hypothesis import example, given, settings, strategies as st
+
 
 @given(xs=st.binary())
 @example(xs=bytes())
@@ -92,14 +94,125 @@ def test_skip_bytes(bsf):
     assert flatten_chunks(tail) == flatten_chunks(buf_orig)[n:]
 
 
+@given(chunks=st.lists(st.binary()))
+def test_zlib(chunks):
+    xs = main.gunzip_seq(main.gzip_seq(chunks))
+    assert flatten_chunks(xs) == flatten_chunks(chunks)
 
 
-def test_needsfiles(tmp_path):
-    file_path = os.path.join(tmp_path, "test.txt")
-    with open(file_path, 'wb') as f:
-        f.write(b'abc\n')
-    with open(file_path, 'rb') as f:
-        print(f.read())
-    # print(tmp_path)
-    # print("AAAAA", os.getcwd())
-    assert 1
+def assert_split_merge(indata, **split_args):
+    with tempfile.TemporaryDirectory() as d:
+        infile = os.path.join(d, 'infile.dat')
+        outdir = os.path.join(d, 'out')
+        merged = os.path.join(d, 'merged.dat')
+        # secret_name is displayed on QRCODE label, not tested here
+        split_args['secret_name'] = None
+        with open(infile, 'wb') as f:
+            f.write(indata)
+        main.do_split(infile,
+                      outdir,
+                      split_args['fmt'],
+                      split_args['n'],
+                      split_args['m'],
+                      split_args['do_gzip'],
+                      split_args['secret_name'])
+        # import subprocess
+        # print(subprocess.check_output(['find', str(d)]).decode())
+        print([os.path.join(outdir, d) for d in os.listdir(outdir)])
+        main.do_merge([os.path.join(outdir, d) for d in os.listdir(outdir)],
+                      merged)
+        with open(merged, 'rb') as f:
+            assert f.read() == indata
+
+
+@st.composite
+def m_and_n(draw, n=st.integers(min_value=2, max_value=10)):
+    n = draw(n)
+    m = draw(st.integers(min_value=2, max_value=n))
+    return (m, n)
+
+
+## DATA
+### N of N
+#### Uncompressed
+@given(xs=st.binary(), n=st.integers(min_value=2, max_value=10))
+@settings(max_examples=100)
+def test_split_data_n_of_n(xs, n):
+    assert_split_merge(xs, fmt='DATA',
+                       n=n, m=n,
+                       do_gzip=False)
+
+
+@given(n=st.integers(min_value=2, max_value=5),
+       j=st.integers(min_value=0, max_value=9),
+       k=st.integers(min_value=0, max_value=100))
+@settings(max_examples=10)
+def test_split_large_data_n_of_n(n, j, k):
+    xs = os.urandom(100000 + j * 100 + k)
+    assert_split_merge(xs, fmt='DATA',
+                       n=n, m=n,
+                       do_gzip=False)
+
+
+#### Gzip
+@given(xs=st.binary(), n=st.integers(min_value=2, max_value=10))
+@settings(max_examples=100)
+def test_split_data_gzip_n_of_n(xs, n):
+    assert_split_merge(xs, fmt='DATA',
+                       n=n, m=n,
+                       do_gzip=True)
+
+
+@given(n=st.integers(min_value=2, max_value=5),
+       j=st.integers(min_value=0, max_value=9),
+       k=st.integers(min_value=0, max_value=100))
+@settings(max_examples=10)
+def test_split_large_data_gzip_n_of_n(n, j, k):
+    xs = os.urandom(100000 + j * 100 + k)
+    assert_split_merge(xs, fmt='DATA',
+                       n=n, m=n,
+                       do_gzip=True)
+
+
+### M of N
+#### Uncompressed
+@given(xs=st.binary(), m_n=m_and_n(n=st.integers(min_value=2, max_value=5)))
+@settings(max_examples=100)
+def test_split_data_m_of_n(xs, m_n):
+    (m, n) = m_n
+    assert_split_merge(xs, fmt='DATA',
+                       m=m, n=n,
+                       do_gzip=False)
+
+
+@given(m_n=m_and_n(n=st.integers(min_value=2, max_value=5)),
+       j=st.integers(min_value=0, max_value=9),
+       k=st.integers(min_value=0, max_value=99))
+@settings(max_examples=10)
+def test_split_large_data_n_of_n(m_n, j, k):
+    (m, n) = m_n
+    xs = os.urandom(10000 + j * 100 + k)
+    assert_split_merge(xs, fmt='DATA',
+                       m=m, n=n,
+                       do_gzip=False)
+
+
+#### Gzip
+# TODO
+
+
+
+## QRCODE
+# TODO
+
+# @given(xs=st.binary(), n=st.integers(min_value=2, max_value=10))
+# @settings(max_examples=100)
+# def test_split_data_n_of_n_gzip(xs, n):
+#     with tempfile.TemporaryDirectory() as d:
+#         (infile, outdir, merged) = paths(d)
+#         do_split(xs, infile, outdir, fmt='DATA', n=n, m=n, do_gzip=True, secret_name=None)
+#         # import subprocess
+#         # print(subprocess.check_output(['find', str(d)]).decode())
+#         main.do_merge(share_paths(outdir), merged)
+#         with open(merged, 'rb') as f:
+#             assert f.read() == xs

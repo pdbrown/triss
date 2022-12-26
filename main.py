@@ -120,6 +120,10 @@ from pyzbar import pyzbar
 # https://en.wikipedia.org/wiki/Secret_sharing#Efficient_secret_sharing
 
 
+# Size of fragment chunks to decode at once.
+CHUNK_SIZE = 4096
+
+
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
@@ -514,6 +518,15 @@ def gzip_seq(chunk_seq):
     yield gz.flush()
 
 
+def gunzip_seq(chunk_seq):
+    gz = zlib.decompressobj()
+    for chunk in chunk_seq:
+        z = gz.decompress(chunk)
+        if z:
+            yield z
+    yield gz.flush()
+
+
 def open_input(file_name):
     infd = None
     closefds = []
@@ -622,8 +635,9 @@ def find_dataset_parts(finfos):
     list is the collection of fragments to combine to reconstruct the original
     segment.
     E.g.:
-    [[seg0_frag0, seg0_frag1],
-     [seg1_frag0, seg1_frag1]]
+    [[seg0_frag0, seg0_frag1, ...],
+     [seg1_frag0, seg1_frag1, ...],
+     ...]
     """
     # Declare helpers first
     indent = 0
@@ -708,6 +722,24 @@ def find_dataset_parts(finfos):
                 return False
         return True
 
+    @with_indent(2)
+    def is_dataset_consistent(dataset):  # assumes dataset is complete
+        finfo00 = dataset[0][0]
+        dataset_gzipped = finfo00['header'].test_flag(
+            Header.FLAG_GZIP_COMPRESSION)
+        for (seg_id, seg) in dataset.items():
+            for (frag_id, frag) in seg.items():
+                frag_gzipped = frag['header'].test_flag(
+                    Header.FLAG_GZIP_COMPRESSION)
+                if frag_gzipped != dataset_gzipped:
+                    iprintf(f"Segment {seg_id} fragment {frag_id} had "
+                            f"unexpected gzip flag. Expected {dataset_gzipped} "
+                            f" but got {frag_gzipped}. Flag must be the same "
+                            "for all fragments.")
+                    return False
+        return True
+
+
     # Begin top level `find_dataset_parts` fn:
     ds = {}  # datasets by dataset_id
     for finfo in finfos:
@@ -721,8 +753,12 @@ def find_dataset_parts(finfos):
         print(f"Check dataset {dataset_id}.")
         if is_dataset_complete(dataset):
             print(f"Found complete dataset with id {dataset_id}!")
-            out_dataset = dataset
-            break
+            if is_dataset_consistent(dataset):
+                out_dataset = dataset
+                break
+            else:
+                print(f"Dataset with id {dataset_id} is not consistent, "
+                      "won't use it.")
     if not out_dataset:
         print("Failed to find a complete dataset among inputs, can't proceed.")
         return None
@@ -738,11 +774,11 @@ def find_dataset_parts(finfos):
     return parts
 
 
-def data_fragment_chunks(fragments):
+def fragmented_chunks(fragment_finfos):
     open_frags = []
-    for finfo in fragments:
+    for finfo in fragment_finfos:
         (data, do_close) = open_dat_or_qrcode(finfo)
-        data = skip_bytes(data, Header.HEADER_SIZE_BYTES)
+        data = resize_chunks(data, CHUNK_SIZE)
         open_frags.append((data, do_close))
     try:
         while True:
@@ -757,6 +793,22 @@ def data_fragment_chunks(fragments):
             do_close()
 
 
+def merged_segments(fragmented_segments):
+    """
+    Take fragmented segments, merge fragments, return seq of segments.
+    Fragments are byte sequences, in same order as returned by
+    `find_dataset_parts`.
+    [[seg0_frag0,   seg0_frag1,   ..., seg0_frag(k)],
+     [seg1_frag0,   seg1_frag1,   ..., seg1_frag(k)],
+     ...,
+     [seg(n)_frag0, seg(n)_frag1, ..., seg(n)_frag(k)]]
+    ->
+    [seg0, seg1, ..., seg(n)]
+    """
+    for fragments in fragmented_segments:
+        yield merge_data(fragments)
+
+
 # Find files.
 # Look for DATA format first, then QRCODE.
 # DATA files: open fds, decode headers, assemble dataset, decode data.
@@ -765,18 +817,32 @@ def data_fragment_chunks(fragments):
 def do_merge(dirs, out_file_name):
     finfos = decode_headers(list_files(dirs))
     dataset_parts = find_dataset_parts(finfos)
+    do_gunzip = dataset_parts[0][0]['header'].test_flag(
+        Header.FLAG_GZIP_COMPRESSION)
     if not dataset_parts:
         return None
     with open(out_file_name, 'wb') as f:
         for segment in dataset_parts:
-            print(segment)
-            print(len(segment))
-            for chunks in data_fragment_chunks(segment):
-                print(chunks)
-                for c in chunks:
-                    print(len(c))
-                reconstructed = merge_data(chunks)
-                f.write(reconstructed)
+            # Read each fragment of segment  chunk-wise. The chunk size is
+            # determined by underlying buffering (read1 or QR code size).
+            # Takes one fragmented segment [frag0, frag1, ..., fragn] to a list
+            # of fragmented chunks in same layout as fragmented segment:
+            # -> [[frag0_chunk0, frag1_chunk0, ...],
+            #     [frag0_chunk1, frag1_chunk1, ...],
+            #     ...]
+            xs = fragmented_chunks(segment)
+            # Merge each chunk of fragments into a plaintext chunk. (Same as
+            # merging segments.)
+            # -> [chunk0, chunk1, ..., chunk(n)]
+            xs = merged_segments(xs)
+            # Skip header, seek to data.
+            xs = skip_bytes(xs, Header.HEADER_SIZE_BYTES)
+            if do_gunzip:
+                # Gunzip data stream
+                xs = gunzip_seq(xs)
+            for chunk in xs:
+                f.write(chunk)
+
 
 # TODO debug this:
 #do_merge(['testout/share-0', 'testout/share-1'], 'out.txt')
