@@ -1,9 +1,11 @@
+import pytest
 import os
 import re
 import copy
 import random
 import tempfile
 import main
+import zlib
 from hypothesis import example, given, settings, strategies as st
 
 
@@ -136,28 +138,37 @@ def select_shares(outdir, n_shares):
     return [os.path.join(outdir, d) for d in shares[0:n_shares]]
 
 
-def assert_split_merge(indata, n_recover=None, **split_args):
+def assert_split(indata, infile, outdir, split_args):
+    with open(infile, 'wb') as f:
+        f.write(indata)
+    split_ret = main.do_split(infile,
+                              outdir,
+                              split_args['fmt'],
+                              split_args['n'],
+                              split_args['m'],
+                              split_args['do_gzip'],
+                              split_args['secret_name'])
+    assert split_ret == 0
+
+
+def assert_merge(indata, outdir, merged, m):
+    merge_ret = main.do_merge(select_shares(outdir, m), merged)
+    assert merge_ret == 0
+    with open(merged, 'rb') as f:
+        assert f.read() == indata
+
+
+def assert_split_merge(indata, **split_args):
     with tempfile.TemporaryDirectory() as d:
         infile = os.path.join(d, 'infile.dat')
         outdir = os.path.join(d, 'out')
         merged = os.path.join(d, 'merged.dat')
         # secret_name is displayed on QRCODE label, not tested here
         split_args['secret_name'] = None
-        with open(infile, 'wb') as f:
-            f.write(indata)
-        main.do_split(infile,
-                      outdir,
-                      split_args['fmt'],
-                      split_args['n'],
-                      split_args['m'],
-                      split_args['do_gzip'],
-                      split_args['secret_name'])
+        assert_split(indata, infile, outdir, split_args)
         # import subprocess
         # print(subprocess.check_output(['find', str(d)]).decode())
-        main.do_merge(select_shares(outdir, n_recover or split_args['m']),
-                      merged)
-        with open(merged, 'rb') as f:
-            assert f.read() == indata
+        assert_merge(indata, outdir, merged, split_args['m'])
 
 
 @st.composite
@@ -167,7 +178,7 @@ def m_and_n(draw, n=st.integers(min_value=2, max_value=10)):
     return (m, n)
 
 
-# Test recovery
+# Test that recovery of split secret works
 ## DATA
 ### N of N
 #### Uncompressed
@@ -179,10 +190,10 @@ def test_split_data_n_of_n(xs, n):
                        do_gzip=False)
 
 
-@given(n=st.integers(min_value=2, max_value=20),
+@given(n=st.integers(min_value=2, max_value=10),
        j=st.integers(min_value=0, max_value=9),
        k=st.integers(min_value=0, max_value=99))
-@settings(max_examples=20)
+@settings(max_examples=20, deadline=10000)
 def test_split_large_data_n_of_n(n, j, k):
     xs = os.urandom(1000000 + j * 100 + k + 1)
     assert_split_merge(xs, fmt='DATA',
@@ -199,10 +210,10 @@ def test_split_data_gzip_n_of_n(xs, n):
                        do_gzip=True)
 
 
-@given(n=st.integers(min_value=2, max_value=20),
+@given(n=st.integers(min_value=2, max_value=10),
        j=st.integers(min_value=0, max_value=9),
        k=st.integers(min_value=0, max_value=100))
-@settings(max_examples=20)
+@settings(max_examples=20, deadline=10000)
 def test_split_large_data_gzip_n_of_n(n, j, k):
     xs = os.urandom(100000 + j * 100 + k + 1)
     assert_split_merge(xs, fmt='DATA',
@@ -228,8 +239,8 @@ def test_split_data_m_of_n(xs, m_n):
 @given(m_n=m_and_n(n=st.integers(min_value=2, max_value=8)),
        j=st.integers(min_value=0, max_value=9),
        k=st.integers(min_value=0, max_value=99))
-@settings(max_examples=20)
-def test_split_large_data_n_of_n(m_n, j, k):
+@settings(max_examples=20, deadline=10000)
+def test_split_large_data_m_of_n(m_n, j, k):
     (m, n) = m_n
     xs = os.urandom(10000 + j * 100 + k + 1)
     assert_split_merge(xs, fmt='DATA',
@@ -240,7 +251,7 @@ def test_split_large_data_n_of_n(m_n, j, k):
 #### Gzip
 @given(xs=st.binary(min_size=1), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
 @settings(max_examples=200)
-def test_split_data_m_of_n(xs, m_n):
+def test_split_data_gzip_m_of_n(xs, m_n):
     (m, n) = m_n
     assert_split_merge(xs, fmt='DATA',
                        m=m, n=n,
@@ -250,8 +261,8 @@ def test_split_data_m_of_n(xs, m_n):
 @given(m_n=m_and_n(n=st.integers(min_value=2, max_value=8)),
        j=st.integers(min_value=0, max_value=9),
        k=st.integers(min_value=0, max_value=99))
-@settings(max_examples=20)
-def test_split_large_data_n_of_n(m_n, j, k):
+@settings(max_examples=20, deadline=10000)
+def test_split_large_data_gzip_m_of_n(m_n, j, k):
     (m, n) = m_n
     xs = os.urandom(10000 + j * 100 + k + 1)
     assert_split_merge(xs, fmt='DATA',
@@ -300,3 +311,147 @@ def test_split_qrcode_gzip_m_of_n(xs, m_n):
     assert_split_merge(xs, fmt='QRCODE',
                        m=m, n=n,
                        do_gzip=True)
+
+
+# Ensure a secret can't be recovered if shares are missing
+def to_incomplete_dataset_parts(dataset_dict):
+    parts = []
+    seg_ids = list(dataset_dict.keys())
+    seg_ids.sort()
+    for seg_id in seg_ids:
+        seg = dataset_dict[seg_id]
+        frags = []
+        frag_ids = list(seg.keys())
+        frag_ids.sort()
+        for frag_id in frag_ids:
+            frag = seg[frag_id]
+            frags.append(frag)
+        parts.append(frags)
+    return parts
+
+
+def assert_bad_merge(indata, outdir, merged, m):
+    m = m - 1  # Pretend we're missina a share
+    # Test that merge fn rejects bad merge attempt:
+    shares = select_shares(outdir, m)
+    merge_ret = main.do_merge(shares, merged)
+    assert merge_ret == 1
+    # Bypass bad merge attempt check, merge anyway, assert data is not
+    # recovered.
+    # Reuse some of the implementation of do_merge
+    finfos = main.decode_headers(main.list_files(shares))
+    # Assume all datasets are incomplete, take whichever one comes first
+    incomplete_dataset = next(iter(
+        main.group_finfos_by_dataset(finfos).values()))
+    dataset_parts = to_incomplete_dataset_parts(incomplete_dataset)
+    main.merge_dataset_parts(dataset_parts, merged)
+    with open(merged, 'rb') as f:
+        assert f.read() != indata
+
+
+def assert_unrecoverable_missing_share(indata, **split_args):
+    with tempfile.TemporaryDirectory() as d:
+        infile = os.path.join(d, 'infile.dat')
+        outdir = os.path.join(d, 'out')
+        merged = os.path.join(d, 'merged.dat')
+        # secret_name is displayed on QRCODE label, not tested here
+        split_args['secret_name'] = None
+        assert_split(indata, infile, outdir, split_args)
+        # print(subprocess.check_output(['find', str(d)]).decode())
+        assert_bad_merge(indata, outdir, merged, split_args['m'])
+
+
+## DATA
+### N of N
+#### Uncompressed
+@given(xs=st.binary(min_size=10), n=st.integers(min_value=2, max_value=20))
+@settings(max_examples=100)
+def test_bad_merge_data_n_of_n(xs, n):
+    assert_unrecoverable_missing_share(
+        xs, fmt='DATA',
+        n=n, m=n,
+        do_gzip=False)
+
+
+#### Gzip
+@given(xs=st.binary(min_size=10), n=st.integers(min_value=2, max_value=20))
+@settings(max_examples=100)
+def test_bad_merge_data_gzip_n_of_n(xs, n):
+    with pytest.raises(zlib.error):
+        assert_unrecoverable_missing_share(
+            xs, fmt='DATA',
+            n=n, m=n,
+            do_gzip=True)
+
+
+### M of N
+#### Uncompressed
+@given(xs=st.binary(min_size=10), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
+@settings(max_examples=100)
+def test_bad_merge_data_m_of_n(xs, m_n):
+    (m, n) = m_n
+    assert_unrecoverable_missing_share(
+        xs, fmt='DATA',
+        m=m, n=n,
+        do_gzip=False)
+
+
+#### Gzip
+@given(xs=st.binary(min_size=1), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
+@settings(max_examples=100)
+def test_bad_merge_data_gzip_m_of_n(xs, m_n):
+    (m, n) = m_n
+    with pytest.raises(zlib.error):
+        assert_unrecoverable_missing_share(
+            xs, fmt='DATA',
+            m=m, n=n,
+            do_gzip=True)
+
+
+## QRCODE
+### N of N
+#### Uncompressed
+@given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=5))
+@settings(max_examples=3, deadline=10000)
+def test_bad_merge_qrcode_n_of_n(xs, n):
+    assert_unrecoverable_missing_share(
+        xs, fmt='QRCODE',
+        n=n, m=n,
+        do_gzip=False)
+
+
+#### Gzip
+@given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=5))
+@settings(max_examples=3, deadline=10000)
+def test_bad_merge_qrcode_gzip_n_of_n(xs, n):
+    with pytest.raises(zlib.error):
+        assert_unrecoverable_missing_share(
+            xs, fmt='QRCODE',
+            n=n, m=n,
+            do_gzip=True)
+
+
+### M of N
+#### Uncompressed
+@given(xs=st.binary(min_size=1, max_size=5000),
+       m_n=m_and_n(n=st.integers(min_value=2, max_value=5)))
+@settings(max_examples=3, deadline=10000)
+def test_bad_merge_qrcode_m_of_n(xs, m_n):
+    (m, n) = m_n
+    assert_unrecoverable_missing_share(
+        xs, fmt='QRCODE',
+        m=m, n=n,
+        do_gzip=False)
+
+
+#### Gzip
+@given(xs=st.binary(min_size=1, max_size=5000),
+       m_n=m_and_n(n=st.integers(min_value=2, max_value=5)))
+@settings(max_examples=3, deadline=10000)
+def test_bad_merge_qrcode_gzip_m_of_n(xs, m_n):
+    (m, n) = m_n
+    with pytest.raises(zlib.error):
+        assert_unrecoverable_missing_share(
+            xs, fmt='QRCODE',
+            m=m, n=n,
+            do_gzip=True)

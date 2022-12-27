@@ -733,29 +733,25 @@ def find_dataset_parts(finfos):
 
     @with_indent(2)
     def is_dataset_consistent(dataset):  # assumes dataset is complete
-        finfo00 = dataset[0][0]
-        dataset_gzipped = finfo00['header'].test_flag(
-            Header.FLAG_GZIP_COMPRESSION)
+        # Assert all fragments of each segment have same gzip flag value within
+        # the segment.
         for (seg_id, seg) in dataset.items():
+            seg_gzipped = seg[0]['header'].test_flag(
+                Header.FLAG_GZIP_COMPRESSION)
             for (frag_id, frag) in seg.items():
                 frag_gzipped = frag['header'].test_flag(
                     Header.FLAG_GZIP_COMPRESSION)
-                if frag_gzipped != dataset_gzipped:
+                if frag_gzipped != seg_gzipped:
                     iprintf(f"Segment {seg_id} fragment {frag_id} had "
-                            f"unexpected gzip flag. Expected {dataset_gzipped} "
+                            f"unexpected gzip flag. Expected {seg_gzipped} "
                             f" but got {frag_gzipped}. Flag must be the same "
                             "for all fragments.")
                     return False
         return True
 
-
     # Begin top level `find_dataset_parts` fn:
-    ds = {}  # datasets by dataset_id
-    for finfo in finfos:
-        header = finfo['header']
-        dataset = ds.setdefault(header.info['dataset_id'], {})
-        segment = dataset.setdefault(header.info['segment_id'], {})
-        segment[header.info['fragment_id']] = finfo
+    # ds is datasets by dataset_id
+    ds = group_finfos_by_dataset(finfos)
     out_dataset = None
     print("Looking for complete dataset among inputs.")
     for (dataset_id, dataset) in ds.items():
@@ -771,10 +767,24 @@ def find_dataset_parts(finfos):
     if not out_dataset:
         print("Failed to find a complete dataset among inputs, can't proceed.")
         return None
+    return to_dataset_parts(out_dataset)
+
+
+def group_finfos_by_dataset(finfos):
+    ds = {}  # datasets by dataset_id
+    for finfo in finfos:
+        header = finfo['header']
+        dataset = ds.setdefault(header.info['dataset_id'], {})
+        segment = dataset.setdefault(header.info['segment_id'], {})
+        segment[header.info['fragment_id']] = finfo
+    return ds
+
+
+def to_dataset_parts(dataset_dict):
     parts = []
-    n_segments = len(out_dataset[0])
-    for seg_id in range(len(out_dataset)):
-        seg = out_dataset[seg_id]
+    n_segments = len(dataset_dict[0])
+    for seg_id in range(len(dataset_dict)):
+        seg = dataset_dict[seg_id]
         frags = []
         for frag_id in range(len(seg)):
             frag = seg[frag_id]
@@ -818,23 +828,10 @@ def merged_segments(fragmented_segments):
         yield merge_data(fragments)
 
 
-# Find files.
-# Look for DATA format first, then QRCODE.
-# DATA files: open fds, decode headers, assemble dataset, decode data.
-# QRCODE files: decode all qrcodes in memory, decode headers, assemble
-# dataset. Then decode qrcodes in dataset again, decode data.
-def do_merge(dirs, out_file_name):
-    finfos = decode_headers(list_files(dirs))
-    dataset_parts = find_dataset_parts(finfos)
-    if not dataset_parts:
-        return 1
-    do_gunzip = dataset_parts[0][0]['header'].test_flag(
-        Header.FLAG_GZIP_COMPRESSION)
-    if not dataset_parts:
-        return None
+def merge_dataset_parts(dataset_parts, out_file_name):
     with open(out_file_name, 'wb') as f:
         for segment in dataset_parts:
-            # Read each fragment of segment  chunk-wise. The chunk size is
+            # Read each fragment of segment chunk-wise. The chunk size is
             # determined by underlying buffering (read1 or QR code size).
             # Takes one fragmented segment [frag0, frag1, ..., fragn] to a list
             # of fragmented chunks in same layout as fragmented segment:
@@ -848,11 +845,30 @@ def do_merge(dirs, out_file_name):
             xs = merged_segments(xs)
             # Skip header, seek to data.
             xs = skip_bytes(xs, Header.HEADER_SIZE_BYTES)
+            # Check header of first fragment for gzip flag.
+            do_gunzip = segment[0]['header'].test_flag(
+                Header.FLAG_GZIP_COMPRESSION)
             if do_gunzip:
                 # Gunzip data stream
                 xs = gunzip_seq(xs)
             for chunk in xs:
                 f.write(chunk)
+
+
+# Find files.
+# Look for DATA format first, then QRCODE.
+# DATA files: open fds, decode headers, assemble dataset, decode data.
+# QRCODE files: decode all qrcodes in memory, decode headers, assemble
+# dataset. Then decode qrcodes in dataset again, decode data.
+def do_merge(dirs, out_file_name):
+    finfos = decode_headers(list_files(dirs))
+    dataset_parts = find_dataset_parts(finfos)
+    if not dataset_parts:
+        return 1
+    if not dataset_parts:
+        return None
+    merge_dataset_parts(dataset_parts, out_file_name)
+    return 0
 
 
 # From https://www.qrcode.com/en/about/version.html
