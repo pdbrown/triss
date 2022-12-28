@@ -141,13 +141,7 @@ def select_shares(outdir, n_shares):
 def assert_split(indata, infile, outdir, split_args):
     with open(infile, 'wb') as f:
         f.write(indata)
-    split_ret = main.do_split(infile,
-                              outdir,
-                              split_args['fmt'],
-                              split_args['n'],
-                              split_args['m'],
-                              split_args['do_gzip'],
-                              split_args['secret_name'])
+    split_ret = main.do_split(infile, outdir, **split_args)
     assert split_ret == 0
 
 
@@ -163,8 +157,6 @@ def assert_split_merge(indata, **split_args):
         infile = os.path.join(d, 'infile.dat')
         outdir = os.path.join(d, 'out')
         merged = os.path.join(d, 'merged.dat')
-        # secret_name is displayed on QRCODE label, not tested here
-        split_args['secret_name'] = None
         assert_split(indata, infile, outdir, split_args)
         # import subprocess
         # print(subprocess.check_output(['find', str(d)]).decode())

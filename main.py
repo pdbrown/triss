@@ -137,14 +137,14 @@ class FatalError(Exception):
     pass
 
 
-def fletcher_checksum_16(xs):
+def fletchers_checksum_16(xs):
     """
     Return 2 byte fletcher's checksum.
     """
     c = 0
     n = 0
     for x in xs:
-        n = (n + x)  # running sum, ignores order
+        n = (n + x)  # running sum, order independent
         c = (c + n)  # sum of running sums, depends on order
     return bytes([c % 255, n % 255])
 
@@ -189,7 +189,7 @@ class Header:
             [self.field_bytes(f, l)
              for (f, l)
              in self.FIELDS]))
-        return data + fletcher_checksum_16(data)
+        return data + fletchers_checksum_16(data)
 
     def test_flag(self, flag):
         return self.info['flags'] & flag != 0
@@ -207,7 +207,7 @@ class Header:
         data = data[0:cls.HEADER_SIZE_BYTES]
         checksum = bytes(data[-2:])  # last 2 bytes are checksum
         payload = bytes(data[0:-2])  # first n-2 bytes are payload
-        if fletcher_checksum_16(payload) != checksum:
+        if fletchers_checksum_16(payload) != checksum:
             raise ValueError("Refusing to parse header with bad checksum.")
         info = {}
         k = 0
@@ -568,7 +568,14 @@ def setup_share_dirs(share_ids, out_dir_path, datasets):
                                  in dataset['share_ids']]
 
 
-def do_split(in_file_name, out_dir_path, fmt, n, m, do_gzip, secret_name):
+def do_split(in_file_name, out_dir_path,
+             fmt=DEFAULT_FORMAT, n=2, m=2, do_gzip=False,
+             secret_name=None, skip_merge_check=False):
+    if m < 2:
+        raise FatalError("Must split into at least 2 shares.")
+    if m > n:
+        raise FatalError("N must be equal or greater than M for M-of-N split.")
+
     (share_ids, datasets) = m_of_n_shares(m or n, n)
     setup_share_dirs(share_ids, out_dir_path, datasets)
 
@@ -589,9 +596,12 @@ def do_split(in_file_name, out_dir_path, fmt, n, m, do_gzip, secret_name):
             write_qr_datasets(datasets, data_chunks, header_info, secret_name)
         else:
             raise FatalError("Invalid output format: {}".format(fmt))
-        return 0
     finally:
         do_close()
+    if not skip_merge_check:
+        ensure_splits_merge(datasets)
+    return 0
+
 
 
 def list_files(dirs):
@@ -637,7 +647,7 @@ def decode_headers(finfos):
             do_close()
 
 
-def find_dataset_parts(finfos):
+def find_dataset_parts(finfos, quiet=False):
     """
     Find first complete dataset among files described by FINFOS.
     Return a list of segment fragement collections. Each element of the outer
@@ -652,7 +662,8 @@ def find_dataset_parts(finfos):
     indent = 0
     def iprint(*objects, **kwargs):
         nonlocal indent
-        print(" "*indent, *objects, sep='', **kwargs)
+        if not quiet:
+            print(" "*indent, *objects, sep='', **kwargs)
 
     def with_indent(i):
         def set_indent(f):
@@ -753,19 +764,19 @@ def find_dataset_parts(finfos):
     # ds is datasets by dataset_id
     ds = group_finfos_by_dataset(finfos)
     out_dataset = None
-    print("Looking for complete dataset among inputs.")
+    iprint("Looking for complete dataset among inputs.")
     for (dataset_id, dataset) in ds.items():
-        print(f"Check dataset {dataset_id}.")
+        iprint(f"Check dataset {dataset_id}.")
         if is_dataset_complete(dataset):
-            print(f"Found complete dataset with id {dataset_id}!")
+            iprint(f"Found complete dataset with id {dataset_id}!")
             if is_dataset_consistent(dataset):
                 out_dataset = dataset
                 break
             else:
-                print(f"Dataset with id {dataset_id} is not consistent, "
-                      "won't use it.")
+                iprint(f"Dataset with id {dataset_id} is not consistent, "
+                       "won't use it.")
     if not out_dataset:
-        print("Failed to find a complete dataset among inputs, can't proceed.")
+        iprint("Failed to find a complete dataset among inputs, can't proceed.")
         return None
     return to_dataset_parts(out_dataset)
 
@@ -860,14 +871,27 @@ def merge_dataset_parts(dataset_parts, out_file_name):
 # DATA files: open fds, decode headers, assemble dataset, decode data.
 # QRCODE files: decode all qrcodes in memory, decode headers, assemble
 # dataset. Then decode qrcodes in dataset again, decode data.
-def do_merge(dirs, out_file_name):
+def do_merge(dirs, out_file_name, quiet=False):
     finfos = decode_headers(list_files(dirs))
-    dataset_parts = find_dataset_parts(finfos)
+    dataset_parts = find_dataset_parts(finfos, quiet=quiet)
     if not dataset_parts:
         return 1
     if not dataset_parts:
         return None
     merge_dataset_parts(dataset_parts, out_file_name)
+    return 0
+
+
+def ensure_splits_merge(datasets):
+    for dataset in datasets:
+        dirs = dataset['share_dirs']
+        with tempfile.NamedTemporaryFile() as f:
+            os.chmod(f.name, 0o600)
+            merge_ret = do_merge(dirs, f.name, quiet=True)
+            if merge_ret != 0:
+                ds_id = dataset['dataset_id']
+                raise FatalError(f"Failed to merge dataset {ds_id} after "
+                                 "split, something went wrong, aborting.")
     return 0
 
 
@@ -888,14 +912,13 @@ def qr_image(data):
         # 30% of lost data bytes can be recovered.
         error_correction=qrcode.constants.ERROR_CORRECT_H,
         box_size=QR_BOX_SIZE,
-        border=QR_BORDER,
+        border=QR_BORDER
     )
     qrdata = qrcode.util.QRData(data,
                                 mode=qrcode.util.MODE_8BIT_BYTE,
                                 check_data=False)
     qr.add_data(qrdata)
     qr.make(fit=True)
-
     img = qr.make_image()
     return img
 
@@ -962,11 +985,13 @@ def main():
                    metavar='IN_FILE', help='path to input file, '
                    'read from stdin if omitted')
     s.add_argument('-f', required=False, choices=['DATA', 'QRCODE'],
-                   default='QRCODE',
-                   help='output file format, defaults to QRCODE')
+                   default=DEFAULT_FORMAT,
+                   help='output file format, defaults to ' + DEFAULT_FORMAT)
     s.add_argument('-t', type=str, required=False, default='Split Secret',
                    metavar='SECRET_NAME', help='name of secret to include on '
                    'QRCODE images')
+    s.add_argument('-k', required=False, action='store_true',
+                   help='Skip merge check after splitting')
     m = sp.add_parser('merge',
                       help='Merge shares and reconstruct original input.')
     m.add_argument('in_dirs', type=str, nargs='+',
@@ -981,8 +1006,9 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == 'split':
-            return do_split(args.i, args.out_dir, args.f,
-                            args.n, args.m, args.z, args.t)
+            return do_split(args.i, args.out_dir, fmt=args.f,
+                            n=args.n, m=args.m, do_gzip=args.z,
+                            secret_name=args.t, skip_merge_check=args.k)
         elif args.command == 'merge':
             return do_merge(args.in_dirs, args.o)
         else:
