@@ -1,6 +1,4 @@
 import sys
-import gzip
-import zlib
 import os
 import math
 import argparse
@@ -49,9 +47,8 @@ class Header:
     # Field bytes + 2 for checksum
     HEADER_SIZE_BYTES = sum(n for (f, n) in FIELDS) + 2
 
-    FLAG_GZIP_COMPRESSION = 0x00000001
-    FLAG_LAST_SEGMENT     = 0x00000100
-    FLAG_LAST_FRAGMENT    = 0x00000200
+    FLAG_LAST_SEGMENT     = 0x00000001
+    FLAG_LAST_FRAGMENT    = 0x00000002
 
     @staticmethod
     def set_flag(info, flag):
@@ -406,24 +403,6 @@ def read_buffered(fd, fail_empty=None):
         chunk = fd.read1()
 
 
-def gzip_seq(chunk_seq):
-    gz = zlib.compressobj(level=9)
-    for chunk in chunk_seq:
-        z = gz.compress(chunk)
-        if z:
-            yield z
-    yield gz.flush()
-
-
-def gunzip_seq(chunk_seq):
-    gz = zlib.decompressobj()
-    for chunk in chunk_seq:
-        z = gz.decompress(chunk)
-        if z:
-            yield z
-    yield gz.flush()
-
-
 def open_input(file_name):
     infd = None
     closefds = []
@@ -459,8 +438,8 @@ def setup_share_dirs(share_ids, out_dir_path, datasets):
 
 
 def do_split(in_file_name, out_dir_path,
-             fmt=DEFAULT_FORMAT, n=2, m=2, do_gzip=False,
-             secret_name=None, skip_merge_check=False):
+             fmt=DEFAULT_FORMAT, n=2, m=2,
+             secret_name="Split secret", skip_merge_check=False):
     if m < 2:
         raise FatalError("Must split into at least 2 shares.")
     if m > n:
@@ -469,16 +448,12 @@ def do_split(in_file_name, out_dir_path,
     (share_ids, datasets) = m_of_n_shares(m or n, n)
     setup_share_dirs(share_ids, out_dir_path, datasets)
 
-    header_info = {}
-    if do_gzip:
-        Header.set_flag(header_info, Header.FLAG_GZIP_COMPRESSION)
 
     (infd, do_close) = open_input(in_file_name)
     data_chunks = read_buffered(
         infd,
         fail_empty="Input is empty, nothing to do, aborting.")
-    if do_gzip:
-        data_chunks = gzip_seq(data_chunks)
+    header_info = {}
     try:
         if fmt == 'DATA':
             write_dat_datasets(datasets, data_chunks, header_info)
@@ -632,24 +607,6 @@ def find_dataset_parts(finfos, quiet=False):
                 return False
         return True
 
-    @with_indent(2)
-    def is_dataset_consistent(dataset):  # assumes dataset is complete
-        # Assert all fragments of each segment have same gzip flag value within
-        # the segment.
-        for (seg_id, seg) in dataset.items():
-            seg_gzipped = seg[0]['header'].test_flag(
-                Header.FLAG_GZIP_COMPRESSION)
-            for (frag_id, frag) in seg.items():
-                frag_gzipped = frag['header'].test_flag(
-                    Header.FLAG_GZIP_COMPRESSION)
-                if frag_gzipped != seg_gzipped:
-                    iprintf(f"Segment {seg_id} fragment {frag_id} had "
-                            f"unexpected gzip flag. Expected {seg_gzipped} "
-                            f" but got {frag_gzipped}. Flag must be the same "
-                            "for all fragments.")
-                    return False
-        return True
-
     # Begin top level `find_dataset_parts` fn:
     # ds is datasets by dataset_id
     ds = group_finfos_by_dataset(finfos)
@@ -659,12 +616,8 @@ def find_dataset_parts(finfos, quiet=False):
         iprint(f"Check dataset {dataset_id}.")
         if is_dataset_complete(dataset):
             iprint(f"Found complete dataset with id {dataset_id}!")
-            if is_dataset_consistent(dataset):
-                out_dataset = dataset
-                break
-            else:
-                iprint(f"Dataset with id {dataset_id} is not consistent, "
-                       "won't use it.")
+            out_dataset = dataset
+            break
     if not out_dataset:
         iprint("Failed to find a complete dataset among inputs, can't proceed.")
         return None
@@ -746,12 +699,6 @@ def merge_dataset_parts(dataset_parts, out_file_name):
             xs = merged_segments(xs)
             # Skip header, seek to data.
             xs = skip_bytes(xs, Header.HEADER_SIZE_BYTES)
-            # Check header of first fragment for gzip flag.
-            do_gunzip = segment[0]['header'].test_flag(
-                Header.FLAG_GZIP_COMPRESSION)
-            if do_gunzip:
-                # Gunzip data stream
-                xs = gunzip_seq(xs)
             for chunk in xs:
                 f.write(chunk)
 
@@ -866,8 +813,6 @@ def main():
                    help='number of shares')
     s.add_argument('out_dir', type=str, metavar='DIR',
                    help='destination directory path')
-    s.add_argument('-z', required=False, action='store_true',
-                   help='Compress data with gzip before splitting')
     s.add_argument('-m', type=int,
                    help='integer M for M-of-N split: number of shares needed '
                    'to recover input if fewer than N')
@@ -897,7 +842,7 @@ def main():
     try:
         if args.command == 'split':
             return do_split(args.i, args.out_dir, fmt=args.f,
-                            n=args.n, m=args.m, do_gzip=args.z,
+                            n=args.n, m=args.m,
                             secret_name=args.t, skip_merge_check=args.k)
         elif args.command == 'merge':
             return do_merge(args.in_dirs, args.o)

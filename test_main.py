@@ -98,12 +98,6 @@ def test_skip_bytes(bsf):
     assert flatten_chunks(tail) == flatten_chunks(buf_orig)[n:]
 
 
-@given(chunks=st.lists(st.binary()))
-def test_zlib(chunks):
-    xs = main.gunzip_seq(main.gzip_seq(chunks))
-    assert flatten_chunks(xs) == flatten_chunks(chunks)
-
-
 @given(xs=st.binary(min_size=0, max_size=main.QR_SIZE_BYTES),
        caption=st.text(),
        subtitle=st.text())
@@ -173,13 +167,11 @@ def m_and_n(draw, n=st.integers(min_value=2, max_value=10)):
 # Test that recovery of split secret works
 ## DATA
 ### N of N
-#### Uncompressed
 @given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=20))
 @settings(max_examples=200)
 def test_split_data_n_of_n(xs, n):
     assert_split_merge(xs, fmt='DATA',
-                       n=n, m=n,
-                       do_gzip=False)
+                       n=n, m=n)
 
 
 @given(n=st.integers(min_value=2, max_value=10),
@@ -189,32 +181,10 @@ def test_split_data_n_of_n(xs, n):
 def test_split_large_data_n_of_n(n, j, k):
     xs = os.urandom(1000000 + j * 100 + k + 1)
     assert_split_merge(xs, fmt='DATA',
-                       n=n, m=n,
-                       do_gzip=False)
-
-
-#### Gzip
-@given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=20))
-@settings(max_examples=200)
-def test_split_data_gzip_n_of_n(xs, n):
-    assert_split_merge(xs, fmt='DATA',
-                       n=n, m=n,
-                       do_gzip=True)
-
-
-@given(n=st.integers(min_value=2, max_value=10),
-       j=st.integers(min_value=0, max_value=9),
-       k=st.integers(min_value=0, max_value=100))
-@settings(max_examples=20, deadline=10000)
-def test_split_large_data_gzip_n_of_n(n, j, k):
-    xs = os.urandom(100000 + j * 100 + k + 1)
-    assert_split_merge(xs, fmt='DATA',
-                       n=n, m=n,
-                       do_gzip=True)
+                       n=n, m=n)
 
 
 ### M of N
-#### Uncompressed
 # m-of-n sharing opens at least (n choose m) files, and typical ulimits limit
 # max number of file descriptors to 1024 per process. Keep n <=8 to avoid
 # running out of file descriptors. (The python interpreter opens many files
@@ -224,8 +194,7 @@ def test_split_large_data_gzip_n_of_n(n, j, k):
 def test_split_data_m_of_n(xs, m_n):
     (m, n) = m_n
     assert_split_merge(xs, fmt='DATA',
-                       m=m, n=n,
-                       do_gzip=False)
+                       m=m, n=n)
 
 
 @given(m_n=m_and_n(n=st.integers(min_value=2, max_value=8)),
@@ -236,73 +205,28 @@ def test_split_large_data_m_of_n(m_n, j, k):
     (m, n) = m_n
     xs = os.urandom(10000 + j * 100 + k + 1)
     assert_split_merge(xs, fmt='DATA',
-                       m=m, n=n,
-                       do_gzip=False)
-
-
-#### Gzip
-@given(xs=st.binary(min_size=1), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
-@settings(max_examples=200)
-def test_split_data_gzip_m_of_n(xs, m_n):
-    (m, n) = m_n
-    assert_split_merge(xs, fmt='DATA',
-                       m=m, n=n,
-                       do_gzip=True)
-
-
-@given(m_n=m_and_n(n=st.integers(min_value=2, max_value=8)),
-       j=st.integers(min_value=0, max_value=9),
-       k=st.integers(min_value=0, max_value=99))
-@settings(max_examples=20, deadline=10000)
-def test_split_large_data_gzip_m_of_n(m_n, j, k):
-    (m, n) = m_n
-    xs = os.urandom(10000 + j * 100 + k + 1)
-    assert_split_merge(xs, fmt='DATA',
-                       m=m, n=n,
-                       do_gzip=True)
+                       m=m, n=n)
 
 
 ## QRCODE
 ### N of N
-#### Uncompressed
 @given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=5))
-@settings(max_examples=3, deadline=10000)
+@settings(max_examples=4, deadline=20000)
+@example(xs=os.urandom(3000), n=2)  # one large example, needs multiple segments
+@example(xs=os.urandom(2 * main.QR_DATA_SIZE_BYTES), n=2)  # 2 full segments
 def test_split_qrcode_n_of_n(xs, n):
     assert_split_merge(xs, fmt='QRCODE',
-                       n=n, m=n,
-                       do_gzip=False)
-
-
-#### Gzip
-@given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=5))
-@settings(max_examples=3, deadline=10000)
-def test_split_qrcode_gzip_n_of_n(xs, n):
-    assert_split_merge(xs, fmt='QRCODE',
-                       n=n, m=n,
-                       do_gzip=True)
+                       n=n, m=n)
 
 
 ### M of N
-#### Uncompressed
 @given(xs=st.binary(min_size=1, max_size=5000),
        m_n=m_and_n(n=st.integers(min_value=2, max_value=5)))
-@settings(max_examples=3, deadline=10000)
+@settings(max_examples=3, deadline=20000)
 def test_split_qrcode_m_of_n(xs, m_n):
     (m, n) = m_n
     assert_split_merge(xs, fmt='QRCODE',
-                       m=m, n=n,
-                       do_gzip=False)
-
-
-#### Gzip
-@given(xs=st.binary(min_size=1, max_size=5000),
-       m_n=m_and_n(n=st.integers(min_value=2, max_value=5)))
-@settings(max_examples=3, deadline=10000)
-def test_split_qrcode_gzip_m_of_n(xs, m_n):
-    (m, n) = m_n
-    assert_split_merge(xs, fmt='QRCODE',
-                       m=m, n=n,
-                       do_gzip=True)
+                       m=m, n=n)
 
 
 # Ensure a secret can't be recovered if shares are missing
@@ -346,8 +270,6 @@ def assert_unrecoverable_missing_share(indata, **split_args):
         infile = os.path.join(d, 'infile.dat')
         outdir = os.path.join(d, 'out')
         merged = os.path.join(d, 'merged.dat')
-        # secret_name is displayed on QRCODE label, not tested here
-        split_args['secret_name'] = None
         assert_split(indata, infile, outdir, split_args)
         # print(subprocess.check_output(['find', str(d)]).decode())
         assert_bad_merge(indata, outdir, merged, split_args['m'])
@@ -355,95 +277,40 @@ def assert_unrecoverable_missing_share(indata, **split_args):
 
 ## DATA
 ### N of N
-#### Uncompressed
 @given(xs=st.binary(min_size=10), n=st.integers(min_value=2, max_value=20))
 @settings(max_examples=100)
 def test_bad_merge_data_n_of_n(xs, n):
     assert_unrecoverable_missing_share(
         xs, fmt='DATA',
-        n=n, m=n,
-        do_gzip=False)
-
-
-#### Gzip
-@given(xs=st.binary(min_size=10), n=st.integers(min_value=2, max_value=20))
-@settings(max_examples=100)
-def test_bad_merge_data_gzip_n_of_n(xs, n):
-    with pytest.raises(zlib.error):
-        assert_unrecoverable_missing_share(
-            xs, fmt='DATA',
-            n=n, m=n,
-            do_gzip=True)
+        n=n, m=n)
 
 
 ### M of N
-#### Uncompressed
 @given(xs=st.binary(min_size=10), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
 @settings(max_examples=100)
 def test_bad_merge_data_m_of_n(xs, m_n):
     (m, n) = m_n
     assert_unrecoverable_missing_share(
         xs, fmt='DATA',
-        m=m, n=n,
-        do_gzip=False)
-
-
-#### Gzip
-@given(xs=st.binary(min_size=1), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
-@settings(max_examples=100)
-def test_bad_merge_data_gzip_m_of_n(xs, m_n):
-    (m, n) = m_n
-    with pytest.raises(zlib.error):
-        assert_unrecoverable_missing_share(
-            xs, fmt='DATA',
-            m=m, n=n,
-            do_gzip=True)
+        m=m, n=n)
 
 
 ## QRCODE
 ### N of N
-#### Uncompressed
 @given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=5))
-@settings(max_examples=3, deadline=10000)
+@settings(max_examples=3, deadline=20000)
 def test_bad_merge_qrcode_n_of_n(xs, n):
     assert_unrecoverable_missing_share(
         xs, fmt='QRCODE',
-        n=n, m=n,
-        do_gzip=False)
-
-
-#### Gzip
-@given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=5))
-@settings(max_examples=3, deadline=10000)
-def test_bad_merge_qrcode_gzip_n_of_n(xs, n):
-    with pytest.raises(zlib.error):
-        assert_unrecoverable_missing_share(
-            xs, fmt='QRCODE',
-            n=n, m=n,
-            do_gzip=True)
+        n=n, m=n)
 
 
 ### M of N
-#### Uncompressed
 @given(xs=st.binary(min_size=1, max_size=5000),
        m_n=m_and_n(n=st.integers(min_value=2, max_value=5)))
-@settings(max_examples=3, deadline=10000)
+@settings(max_examples=3, deadline=20000)
 def test_bad_merge_qrcode_m_of_n(xs, m_n):
     (m, n) = m_n
     assert_unrecoverable_missing_share(
         xs, fmt='QRCODE',
-        m=m, n=n,
-        do_gzip=False)
-
-
-#### Gzip
-@given(xs=st.binary(min_size=1, max_size=5000),
-       m_n=m_and_n(n=st.integers(min_value=2, max_value=5)))
-@settings(max_examples=3, deadline=10000)
-def test_bad_merge_qrcode_gzip_m_of_n(xs, m_n):
-    (m, n) = m_n
-    with pytest.raises(zlib.error):
-        assert_unrecoverable_missing_share(
-            xs, fmt='QRCODE',
-            m=m, n=n,
-            do_gzip=True)
+        m=m, n=n)
