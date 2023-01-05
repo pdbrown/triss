@@ -65,10 +65,13 @@ class Header:
             self.info['flags'] = flags
 
         for (f, l) in self.FIELDS:
+            # Pad defaults
+            self.info[f] = self.info.get(f) or 0
+            # Assert values in range
             self.field_bytes(f, l)
 
     def field_bytes(self, k, l):
-        v = self.info.get(k) or 0
+        v = self.info[k]
         return v.to_bytes(length=l, byteorder='big', signed=False)
 
     def to_bytes(self):
@@ -162,13 +165,9 @@ def m_of_n_shares(m, n):
     Return tuple of (share_ids, datasets), where share_ids number each share
     from 0 to n-1. The datasets output contains (n choose m) many datasets
     represented by dictionaries with keys:
-      {dataset_id, num_fragments, share_ids, share_parts, share_size}
+      {dataset_id, num_fragments, share_ids}
     dataset['share_ids'] : list
       is the subset of share_ids the dataset should be split among.
-    dataset['share_parts'] : dict
-      maps each share_id in this dataset to its share "part number" (1 based!)
-    dataset['share_size'] : int
-      number of datasets (i.e. fragments) shares consist of
     Consider 2-of-4 example above, dataset_id 0, share 2: has part #1 of share
     size 3.
     """
@@ -178,7 +177,6 @@ def m_of_n_shares(m, n):
     for dataset_id in dataset_ids:
         datasets.append({'dataset_id': dataset_id,
                          'num_fragments': m})
-
     share_ids = range(n)
     # share_subset is the subset of size m of shares that include the dataset
     # named by dataset_id:
@@ -186,32 +184,7 @@ def m_of_n_shares(m, n):
          share_subset) in zip(dataset_ids,
                               itertools.combinations(share_ids, m)):
         datasets[dataset_id]['share_ids'] = share_subset
-
-    set_share_part_nums(datasets, m, n, num_datasets)
-
     return (share_ids, datasets)
-
-
-def set_share_part_nums(datasets, m, n, num_datasets):
-    """
-    m_of_n_shares fn helper. Use separate fn to avoid for-loop variable name collisions.
-    """
-    # Total number of fragments between all datasets
-    total_fragments = num_datasets * m  # m fragments per dataset
-    # Number of fragments (i.e. datasets) in each share
-    share_size = int(total_fragments / n)  # n shares
-    # Build share_parts mapping for each dataset: tells which part of a share
-    # each fragment is.
-    datasets_by_share = {}
-    for dataset in datasets:
-        for share_id in dataset['share_ids']:
-            ds = datasets_by_share.setdefault(share_id, [])
-            ds.append(dataset)
-        dataset['share_size'] = share_size
-    for (share_id, datasets) in datasets_by_share.items():
-        for (part_i, dataset) in enumerate(datasets):
-            share_parts = dataset.setdefault('share_parts', {})
-            share_parts[share_id] = part_i + 1
 
 
 def share_name(share_id):
@@ -224,6 +197,13 @@ def fragment_name(info):
         return fragment + f"_segment-{info['segment_id']}"
     else:
         return fragment
+
+
+def unlabelled_name(info):
+    dataset_id = info['dataset_id']
+    segment_id = info['segment_id']
+    fragment_id = info['fragment_id']
+    return f"{dataset_id}.{segment_id}.{fragment_id}"
 
 
 def dataset_headers(dataset, default_info):
@@ -357,17 +337,18 @@ def iter_islast(xs):
             break
 
 
-def write_qr_datasets(datasets, input_chunks, header_info, secret_name):
+def write_qr_datasets(datasets, input_chunks, header_info):
+    """
+    Return pair of (augmented_headers, num_segments)
+    """
     input_segments = resize_chunks(input_chunks, QR_DATA_SIZE_BYTES)
+    share_part_number = {}
+    all_headers = []
     for (segment_id, (is_last, segment)) in enumerate(iter_islast(input_segments)):
         for dataset in datasets:
-            share_size = dataset['share_size']  # number parts per share
-            share_parts = dataset['share_parts']
             fragments = split_data(segment, dataset['num_fragments'])
-            single_segment = segment_id == 0 and is_last
-            header_info = copy.deepcopy(header_info)
-            if not single_segment:
-                header_info = {**header_info, 'segment_id': segment_id}
+            header_info = {**copy.deepcopy(header_info),
+                           'segment_id': segment_id}
             if is_last:
                 Header.set_flag(header_info, Header.FLAG_LAST_SEGMENT)
             headers = dataset_headers(dataset, header_info)
@@ -376,22 +357,55 @@ def write_qr_datasets(datasets, input_chunks, header_info, secret_name):
                         fragments,
                         dataset['share_dirs'],
                         dataset['share_ids']):
-                out_path = os.path.join(out_dir, fragment_name(header.info)) + ".png"
-                caption = f"{secret_name} - share {share_id}"
-                if not single_segment:
-                    segment_desc = f", segment {segment_id}"
-                    if segment_id == 0:
-                        segment_desc += " (first segment)"
-                    elif is_last:
-                        segment_desc += " (last segment)"
-                else:
-                    segment_desc = ""
-                subtitle = f"Part {dataset['share_parts'][share_id]} " \
-                    f"of {dataset['share_size']}" + segment_desc
-                img = qr_image_with_caption(header.to_bytes() + fragment,
-                                            caption,
-                                            subtitle=subtitle)
+                out_path = os.path.join(out_dir, unlabelled_name(header.info)) + ".png"
+                img = qr_image(header.to_bytes() + fragment)
                 img.save(out_path)
+                part_number = share_part_number.setdefault(share_id, 1)
+                header.part_number = part_number
+                header.out_path = out_path
+                header.share_id = share_id
+                all_headers.append(header)
+                share_part_number[share_id] = part_number + 1
+    return (all_headers, segment_id + 1)
+
+
+def label_qr_datasets(augmented_headers, m, n, num_segments, secret_name):
+    """
+    Add captions to QRCODE images.
+    AUGMENTED_HEADERS is collection of headers, one per QRCODE, augmented by
+    'part_number', 'out_path', and 'share_id'  properties.
+    """
+    # Calculate number of fragments_per_share:
+    # Each dataset is a subset of the total number of shares (n) and is of size m.
+    # There are (n choose m) such subsets i.e. datasets.
+    # Each dataset contributes one fragment to each share it's a member of, so
+    # to count the number of fragments in a share, count the number of datasets
+    # participating in that share:
+    # - First choose the share
+    # - Then count the number of subsets of size m that include this share:
+    #   From (n-1) remaining shares, choose (m-1) of them: (n-1  choose m-1)
+    # NOTE that this is the same as (n choose m) * m/n which expresses:
+    # number_of_datasets * frags_per_dataset / num_shares
+    # Prefer the math.comb method to avoid division.
+    fragments_per_share = math.comb(n - 1, m - 1)
+    parts_per_share = fragments_per_share * num_segments
+
+    for header in augmented_headers:
+        img = Image.open(header.out_path)
+        subtitle = f"Share {header.share_id} - " \
+            f"Part {header.part_number}/{parts_per_share}\n" \
+            f"Need all parts of {m} of {n} shares to recover data.\n" \
+            f"Header info: version {header.info['version']} - " \
+            f"dataset {header.info['dataset_id']} - " \
+            f"fragment {header.info['fragment_id']} - " \
+            f"segment {header.info['segment_id']}"
+        img = add_caption(img, secret_name, subtitle)
+        out_name = f"share-{header.share_id}_part-{header.part_number}" \
+            f"-of-{parts_per_share}.png"
+        final_out_path = os.path.join(os.path.dirname(header.out_path),
+                                      out_name)
+        img.save(final_out_path)
+        os.remove(header.out_path)
 
 
 def read_buffered(fd, fail_empty=None):
@@ -448,7 +462,6 @@ def do_split(in_file_name, out_dir_path,
     (share_ids, datasets) = m_of_n_shares(m or n, n)
     setup_share_dirs(share_ids, out_dir_path, datasets)
 
-
     (infd, do_close) = open_input(in_file_name)
     data_chunks = read_buffered(
         infd,
@@ -458,7 +471,10 @@ def do_split(in_file_name, out_dir_path,
         if fmt == 'DATA':
             write_dat_datasets(datasets, data_chunks, header_info)
         elif fmt == 'QRCODE':
-            write_qr_datasets(datasets, data_chunks, header_info, secret_name)
+            (augmented_headers, num_segments) = \
+                write_qr_datasets(datasets, data_chunks, header_info)
+            label_qr_datasets(augmented_headers, m, n,
+                              num_segments, secret_name)
         else:
             raise FatalError("Invalid output format: {}".format(fmt))
     finally:
@@ -769,17 +785,20 @@ def merge_img_y(im_top, im_bottom):
     return im
 
 
+# TODO scale font sizes properly
 def add_caption(img, title, subtitle=None):
     w = img.size[0]
     h = 200
     capt = Image.new('RGB', (w, h), 'white')
     d = ImageDraw.Draw(capt)
-    title_font = ImageFont.truetype('fonts/DejaVuSans.ttf', 24)
+    title_font = ImageFont.truetype('fonts/DejaVuSans.ttf', 48)
     d.line(((MARGIN, 180), (w - MARGIN, 180)), 'gray')
-    d.text((w/2, 150), title, fill='black', font=title_font, anchor='md')
+    d.text((w/2, 70), title, fill='black', font=title_font, anchor='md',
+           align='center')
     if subtitle:
-        body_font = ImageFont.truetype('fonts/DejaVuSans.ttf', 12)
-        d.text((w/2, 170), subtitle, fill='black', font=body_font, anchor='md')
+        body_font = ImageFont.truetype('fonts/DejaVuSans.ttf', 24)
+        d.text((w/2, 170), subtitle, fill='black', font=body_font, anchor='md',
+               align='center')
 
     return merge_img_y(capt, img)
 
