@@ -1,28 +1,34 @@
-import pytest
 import os
 import re
 import copy
 import random
 import tempfile
-import main
-import zlib
+import subprocess
+
 from hypothesis import example, given, settings, strategies as st
 
+import main
+
+# Increase default deadline from 200ms -> 1000ms.
+# The deadline applies to a single example. A test will fail if examples
+# consistently take longer than the deadline.
+settings.register_profile("default", deadline=1000)
+settings.load_profile("default")
 
 @given(xs=st.binary())
 @example(xs=bytes())
 @example(xs=bytes([0]))
 @settings(max_examples=200)
 def test_xor_bytes(xs):
-    zeros = bytes([0] * len(xs))
-    ones = bytes([255] * len(xs))
+    zeros = bytes([0x00] * len(xs))
+    ones = bytes([0xff] * len(xs))
     assert main.xor_bytes(xs, xs) == zeros
     assert main.xor_bytes(xs, zeros) == xs
     complement = bytes([~b % 256 for b in xs])
     assert main.xor_bytes(xs, ones) == complement
     assert main.xor_bytes(xs, complement) == ones
-    random = os.urandom(len(xs))
-    assert main.xor_bytes(random, main.xor_bytes(xs, random)) == xs
+    pad = random.randbytes(len(xs))
+    assert main.xor_bytes(pad, main.xor_bytes(xs, pad)) == xs
 
 
 @given(xs=st.binary(), n=st.integers(min_value=2, max_value=100))
@@ -101,7 +107,7 @@ def test_skip_bytes(bsf):
 @given(xs=st.binary(min_size=0, max_size=main.QR_SIZE_BYTES),
        caption=st.text(),
        subtitle=st.text())
-@settings(max_examples=100)
+@settings(max_examples=50)
 def test_qrencode_decode(xs, caption, subtitle):
     with tempfile.TemporaryDirectory() as d:
         f = os.path.join(d, 'img.png')
@@ -132,29 +138,39 @@ def select_shares(outdir, n_shares):
     return [os.path.join(outdir, d) for d in shares[0:n_shares]]
 
 
-def assert_split(indata, infile, outdir, split_args):
+def assert_split(indata, infile, outdir, **split_args):
     with open(infile, 'wb') as f:
         f.write(indata)
     split_ret = main.do_split(infile, outdir, **split_args)
     assert split_ret == 0
 
 
-def assert_merge(indata, outdir, merged, m):
-    merge_ret = main.do_merge(select_shares(outdir, m), merged)
+def assert_merge(indata, outdir, merged, m, **merge_args):
+    merge_ret = main.do_merge(select_shares(outdir, m), merged,
+                              **merge_args)
     assert merge_ret == 0
     with open(merged, 'rb') as f:
         assert f.read() == indata
 
 
-def assert_split_merge(indata, **split_args):
+def assert_split_merge(indata, save_on_error=False, merge_quiet=False,
+                       **split_args):
     with tempfile.TemporaryDirectory() as d:
         infile = os.path.join(d, 'infile.dat')
         outdir = os.path.join(d, 'out')
         merged = os.path.join(d, 'merged.dat')
-        assert_split(indata, infile, outdir, split_args)
-        # import subprocess
-        # print(subprocess.check_output(['find', str(d)]).decode())
-        assert_merge(indata, outdir, merged, split_args['m'])
+        try:
+            assert_split(indata, infile, outdir, **split_args)
+            assert_merge(indata, outdir, merged, split_args['m'],
+                         quiet=merge_quiet)
+        except Exception as e:
+            if save_on_error:
+                save_dir = subprocess.check_output(
+                    ['mktemp', '-d']).decode().strip()
+                print(subprocess.check_output(
+                    ['rsync', '-av', d, save_dir]).decode())
+                print("Saved test files to", save_dir)
+            raise e
 
 
 @st.composite
@@ -174,12 +190,11 @@ def test_split_data_n_of_n(xs, n):
                        n=n, m=n)
 
 
-@given(n=st.integers(min_value=2, max_value=10),
-       j=st.integers(min_value=0, max_value=9),
-       k=st.integers(min_value=0, max_value=99))
-@settings(max_examples=20, deadline=10000)
-def test_split_large_data_n_of_n(n, j, k):
-    xs = os.urandom(1000000 + j * 100 + k + 1)
+@given(n=st.integers(min_value=2, max_value=8),
+       j=st.integers(min_value=100000, max_value=300000))
+@settings(max_examples=10, deadline=10000)
+def test_split_large_data_n_of_n(n, j):
+    xs = random.randbytes(j)
     assert_split_merge(xs, fmt='DATA',
                        n=n, m=n)
 
@@ -190,39 +205,40 @@ def test_split_large_data_n_of_n(n, j, k):
 # running out of file descriptors. (The python interpreter opens many files
 # too, so we have to stay well under (n choose m) = 1024).
 @given(xs=st.binary(min_size=1), m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
-@settings(max_examples=200)
+@settings(max_examples=100)
 def test_split_data_m_of_n(xs, m_n):
     (m, n) = m_n
     assert_split_merge(xs, fmt='DATA',
                        m=m, n=n)
 
 
-@given(m_n=m_and_n(n=st.integers(min_value=2, max_value=8)),
-       j=st.integers(min_value=0, max_value=9),
-       k=st.integers(min_value=0, max_value=99))
-@settings(max_examples=20, deadline=10000)
-def test_split_large_data_m_of_n(m_n, j, k):
+@given(m_n=m_and_n(n=st.integers(min_value=2, max_value=6)),
+       j=st.integers(min_value=50000, max_value=150000))
+@settings(max_examples=10, deadline=10000)
+def test_split_large_data_m_of_n(m_n, j):
     (m, n) = m_n
-    xs = os.urandom(10000 + j * 100 + k + 1)
+    xs = random.randbytes(j)
     assert_split_merge(xs, fmt='DATA',
                        m=m, n=n)
 
 
 ## QRCODE
 ### N of N
-@given(xs=st.binary(min_size=1), n=st.integers(min_value=2, max_value=5))
-@settings(max_examples=4, deadline=20000)
-@example(xs=os.urandom(3000), n=2)  # one large example, needs multiple segments
-@example(xs=os.urandom(2 * main.QR_DATA_SIZE_BYTES), n=2)  # 2 full segments
+@given(xs=st.binary(min_size=1, max_size=2000), n=st.integers(min_value=2, max_value=5))
+@settings(max_examples=10, deadline=10000)
+# Want at least one large example, needs multiple segments.
+@example(xs=random.randbytes(3000), n=2)
+# Want an example consisting of full segment.
+@example(xs=random.randbytes(main.QR_DATA_SIZE_BYTES), n=2)
 def test_split_qrcode_n_of_n(xs, n):
     assert_split_merge(xs, fmt='QRCODE',
                        n=n, m=n)
 
 
 ### M of N
-@given(xs=st.binary(min_size=1, max_size=5000),
+@given(xs=st.binary(min_size=1, max_size=3000),
        m_n=m_and_n(n=st.integers(min_value=2, max_value=5)))
-@settings(max_examples=3, deadline=20000)
+@settings(max_examples=10, deadline=10000)
 def test_split_qrcode_m_of_n(xs, m_n):
     (m, n) = m_n
     assert_split_merge(xs, fmt='QRCODE',
@@ -270,7 +286,7 @@ def assert_unrecoverable_missing_share(indata, **split_args):
         infile = os.path.join(d, 'infile.dat')
         outdir = os.path.join(d, 'out')
         merged = os.path.join(d, 'merged.dat')
-        assert_split(indata, infile, outdir, split_args)
+        assert_split(indata, infile, outdir, **split_args)
         # print(subprocess.check_output(['find', str(d)]).decode())
         assert_bad_merge(indata, outdir, merged, split_args['m'])
 

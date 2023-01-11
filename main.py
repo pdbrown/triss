@@ -7,6 +7,7 @@ import secrets
 import copy
 import subprocess
 import tempfile
+import re
 
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
@@ -113,7 +114,8 @@ class Header:
 
 def xor_bytes(xs, ys):
     if len(xs) != len(ys):
-        raise Exception("Refusing to xor byte strings of different length.")
+        raise Exception("Refusing to xor byte strings of different length: "
+                        f"len(xs) = {len(xs)}, len(ys) = {len(ys)}.")
     return bytes(b1 ^ b2 for b1, b2 in zip(xs, ys))
 
 
@@ -810,14 +812,44 @@ def qr_image_with_caption(data, caption, subtitle=None):
 
 def decode_qr_code(path):
     """
-    Decode QR code in image at path PATH, return byte array.
-    NOTE there must only be 1 QR code in the image! While zbarimg will decode
-    multiple QR codes, in binary mode it concatenates their payloads, so
-    there's no easy way to tell where one payload ends and the next begins
+    Decode only QR code in image at path PATH, return byte array.
     """
-    return subprocess.check_output(
-        ['zbarimg', '--raw', '-Sbinary', path],
-        stderr=subprocess.DEVNULL)
+    # Invoke zbarimg with args:
+    # -Senable=0 -Sqrcode.enable=1
+    #    Disable all decoders, then reenable only qrcode decoder
+    #    If any other decoders are enabled, they can detect spurious barcodes
+    #    within the pattern of some qrcodes (about 1 / 100 times for ~50 data
+    #    byte qrcodes).
+    # --raw
+    #    Don't prefix qrcode data with a url scheme qrcode:$DATA.
+    # -Sbinary
+    #    Don't decode qrcode data, return unmodified bytes instead.
+    #
+    # NOTE there must only be 1 QR code in the image! While zbarimg will decode
+    # multiple QR codes, in binary mode it concatenates their payloads, so
+    # there's no easy way to tell where one payload ends and the next begins
+    proc = subprocess.run(
+        ['zbarimg', '-Senable=0', '-Sqrcode.enable=1',
+         '--raw', '-Sbinary', path],
+        capture_output=True)
+    if proc.returncode == 4:
+        eprint(f"Warning: No QRCODE detected in {path}")
+        return bytes()
+    if proc.returncode < 0:
+        # Then terminated by signal
+        return bytes()
+    if proc.returncode != 0:
+        eprint(proc.stderr.decode())
+        raise FatalError(f"Failed to scan QRCODE in {path}")
+    # Check stderr status message, looks like:
+    # scanned 1 barcode symbols from 1 images in 0 seconds
+    m = re.search(r'scanned (\d+) barcode.*from (\d+) image',
+                  proc.stderr.decode())
+    # Want 1 qrcode per (1) image
+    if m.group(1) != '1' or m.group(2) != '1':
+        eprint(proc.stderr.decode())
+        raise FatalError(f"Error: Got unexpected number of QRCODEs in {path}")
+    return proc.stdout
 
 
 def main():
