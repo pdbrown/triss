@@ -1,9 +1,11 @@
+PYTEST := python -m pytest
+
 test:
-	pytest -v test_main.py
-	# pytest -v test_main.py --durations=0
+	$(PYTEST) -v tests/test_main.py
+	# $(PYTEST) -v test_main.py --durations=0
 
 test-stress:
-	pytest -v test_stress.py -s
+	$(PYTEST) -v tests/test_stress.py -s
 
 
 .PHONY: test test-stress

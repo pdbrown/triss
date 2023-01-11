@@ -7,7 +7,7 @@ import subprocess
 
 from hypothesis import example, given, settings, strategies as st
 
-import main
+import trivial_secret_sharing.core as main
 
 # Increase default deadline from 200ms -> 1000ms.
 # The deadline applies to a single example. A test will fail if examples
