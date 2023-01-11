@@ -7,7 +7,7 @@ import subprocess
 
 from hypothesis import example, given, settings, strategies as st
 
-import trivial_secret_sharing.core as main
+import trivial_secret_sharing.core as core
 
 # Increase default deadline from 200ms -> 1000ms.
 # The deadline applies to a single example. A test will fail if examples
@@ -22,23 +22,23 @@ settings.load_profile("default")
 def test_xor_bytes(xs):
     zeros = bytes([0x00] * len(xs))
     ones = bytes([0xff] * len(xs))
-    assert main.xor_bytes(xs, xs) == zeros
-    assert main.xor_bytes(xs, zeros) == xs
+    assert core.xor_bytes(xs, xs) == zeros
+    assert core.xor_bytes(xs, zeros) == xs
     complement = bytes([~b % 256 for b in xs])
-    assert main.xor_bytes(xs, ones) == complement
-    assert main.xor_bytes(xs, complement) == ones
+    assert core.xor_bytes(xs, ones) == complement
+    assert core.xor_bytes(xs, complement) == ones
     pad = random.randbytes(len(xs))
-    assert main.xor_bytes(pad, main.xor_bytes(xs, pad)) == xs
+    assert core.xor_bytes(pad, core.xor_bytes(xs, pad)) == xs
 
 
 @given(xs=st.binary(), n=st.integers(min_value=2, max_value=100))
 @settings(max_examples=200)
 def test_split_merge_data(xs, n):
-    fragments = list(main.split_data(xs, n))
+    fragments = list(core.split_data(xs, n))
     assert len(fragments) == n
-    merged = main.merge_data(fragments)
+    merged = core.merge_data(fragments)
     assert merged == xs
-    assert main.merge_data(main.split_data(xs, n)) == xs
+    assert core.merge_data(core.split_data(xs, n)) == xs
 
 
 @st.composite
@@ -70,7 +70,7 @@ def flatten_chunks(xs):
 def test_flush_bytes(bsf):
     (buf, size, n) = bsf
     buf_orig = copy.deepcopy(buf)
-    (head, buf_tail, size_tail) = main.flush_bytes(buf, size, n)
+    (head, buf_tail, size_tail) = core.flush_bytes(buf, size, n)
     t = 0
     for c in buf_tail:
         t += len(c)
@@ -84,9 +84,9 @@ def test_flush_bytes(bsf):
 @given(xs=st.lists(st.binary()), n=st.integers(min_value=1, max_value=50))
 @settings(max_examples=200)
 def test_resize_chunks(xs, n):
-    resized = main.resize_chunks(xs, n)
+    resized = core.resize_chunks(xs, n)
     chunks = []
-    for (last, x) in main.iter_islast(resized):
+    for (last, x) in core.iter_islast(resized):
         if not last:
             assert len(x) == n
         else:
@@ -100,20 +100,20 @@ def test_resize_chunks(xs, n):
 def test_skip_bytes(bsf):
     (buf, size, n) = bsf
     buf_orig = copy.deepcopy(buf)
-    tail = list(main.skip_bytes(buf, n))
+    tail = list(core.skip_bytes(buf, n))
     assert flatten_chunks(tail) == flatten_chunks(buf_orig)[n:]
 
 
-@given(xs=st.binary(min_size=0, max_size=main.QR_SIZE_BYTES),
+@given(xs=st.binary(min_size=0, max_size=core.QR_SIZE_BYTES),
        caption=st.text(),
        subtitle=st.text())
 @settings(max_examples=50)
 def test_qrencode_decode(xs, caption, subtitle):
     with tempfile.TemporaryDirectory() as d:
         f = os.path.join(d, 'img.png')
-        img = main.qr_image_with_caption(xs, caption, subtitle=subtitle)
+        img = core.qr_image_with_caption(xs, caption, subtitle=subtitle)
         img.save(f)
-        decoded = main.decode_qr_code(f)
+        decoded = core.decode_qr_code(f)
         try:
             assert decoded == xs
         except AssertionError as e:
@@ -141,12 +141,12 @@ def select_shares(outdir, n_shares):
 def assert_split(indata, infile, outdir, **split_args):
     with open(infile, 'wb') as f:
         f.write(indata)
-    split_ret = main.do_split(infile, outdir, **split_args)
+    split_ret = core.do_split(infile, outdir, **split_args)
     assert split_ret == 0
 
 
 def assert_merge(indata, outdir, merged, m, **merge_args):
-    merge_ret = main.do_merge(select_shares(outdir, m), merged,
+    merge_ret = core.do_merge(select_shares(outdir, m), merged,
                               **merge_args)
     assert merge_ret == 0
     with open(merged, 'rb') as f:
@@ -229,7 +229,7 @@ def test_split_large_data_m_of_n(m_n, j):
 # Want at least one large example, needs multiple segments.
 @example(xs=random.randbytes(3000), n=2)
 # Want an example consisting of full segment.
-@example(xs=random.randbytes(main.QR_DATA_SIZE_BYTES), n=2)
+@example(xs=random.randbytes(core.QR_DATA_SIZE_BYTES), n=2)
 def test_split_qrcode_n_of_n(xs, n):
     assert_split_merge(xs, fmt='QRCODE',
                        n=n, m=n)
@@ -266,17 +266,17 @@ def assert_bad_merge(indata, outdir, merged, m):
     m = m - 1  # Pretend we're missina a share
     # Test that merge fn rejects bad merge attempt:
     shares = select_shares(outdir, m)
-    merge_ret = main.do_merge(shares, merged)
+    merge_ret = core.do_merge(shares, merged)
     assert merge_ret == 1
     # Bypass bad merge attempt check, merge anyway, assert data is not
     # recovered.
     # Reuse some of the implementation of do_merge
-    finfos = main.decode_headers(main.list_files(shares))
+    finfos = core.decode_headers(core.list_files(shares))
     # Assume all datasets are incomplete, take whichever one comes first
     incomplete_dataset = next(iter(
-        main.group_finfos_by_dataset(finfos).values()))
+        core.group_finfos_by_dataset(finfos).values()))
     dataset_parts = to_incomplete_dataset_parts(incomplete_dataset)
-    main.merge_dataset_parts(dataset_parts, merged)
+    core.merge_dataset_parts(dataset_parts, merged)
     with open(merged, 'rb') as f:
         assert f.read() != indata
 
