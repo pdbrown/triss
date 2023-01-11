@@ -1,3 +1,4 @@
+-r common.txt
 attrs==22.2.0
 exceptiongroup==1.1.0
 hypothesis==6.62.0
