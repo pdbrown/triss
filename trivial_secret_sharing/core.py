@@ -853,8 +853,9 @@ def decode_qr_code(path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="""
-    Trivial secret sharing utility.
+    parser = argparse.ArgumentParser(
+        prog="trivial_secret_sharing",
+        description="""Trivial secret sharing utility.
     Split input into N-of-N or M-of-N shares or recover input from
     a set of shares.
     """)
@@ -909,4 +910,11 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    rc = 1
+    try:
+        main()
+        rc = 0
+    except Exception as e:
+        print('Error: %s' % e, file=sys.stderr)
+        sys.exit(rc)
+    sys.exit(core.main())
