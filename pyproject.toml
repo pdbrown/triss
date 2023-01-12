@@ -1,0 +1,20 @@
+[project]
+name = "trivial_secret_sharing"
+version = "0.0.1"
+authors = [{ name="Philip Brown", email="pdbrown.git@gmail.com" },]
+description = "Trivial secret sharing implementation with M-of-N splits."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/pypa/sampleproject"
+"Bug Tracker" = "https://github.com/pypa/sampleproject/issues"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
