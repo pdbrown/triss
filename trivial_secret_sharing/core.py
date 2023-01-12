@@ -122,7 +122,7 @@ def xor_bytes(xs, ys):
 def split_data(plain_data, n):
     n_pads = n - 1
     if n_pads < 1:
-        raise FatalError(
+        raise Exception(
             "Refusing to return plain_key_data without one-time padding. "
             "Check number of shares.")
 
@@ -456,10 +456,11 @@ def setup_share_dirs(share_ids, out_dir_path, datasets):
 def do_split(in_file_name, out_dir_path,
              fmt=DEFAULT_FORMAT, n=2, m=2,
              secret_name="Split secret", skip_merge_check=False):
-    if m < 2:
+    if m < 2 or n < 2:
         raise FatalError("Must split into at least 2 shares.")
     if m > n:
-        raise FatalError("N must be equal or greater than M for M-of-N split.")
+        raise FatalError("M cannot be larger than N for M-of-N split: "
+                         f"got {m}-of-{n}")
 
     (share_ids, datasets) = m_of_n_shares(m or n, n)
     setup_share_dirs(share_ids, out_dir_path, datasets)
@@ -750,6 +751,18 @@ def ensure_splits_merge(datasets):
     return 0
 
 
+def run_cmd(cmd, *args, **kwargs):
+    for k in [k for (k, v) in kwargs.items() if v is None]:
+        del kwargs[k]
+    try:
+        rc = cmd(*args, **kwargs)
+    except FatalError as e:
+        for arg in e.args:
+            eprint(arg)
+        return 1
+    return rc
+
+
 # From https://www.qrcode.com/en/about/version.html
 QR_SIZE_BYTES = 1273
 QR_DATA_SIZE_BYTES = QR_SIZE_BYTES - Header.HEADER_SIZE_BYTES
@@ -850,71 +863,3 @@ def decode_qr_code(path):
         eprint(proc.stderr.decode())
         raise FatalError(f"Error: Got unexpected number of QRCODEs in {path}")
     return proc.stdout
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        prog="trivial_secret_sharing",
-        description="""Trivial secret sharing utility.
-    Split input into N-of-N or M-of-N shares or recover input from
-    a set of shares.
-    """)
-    sp = parser.add_subparsers(help='x', dest='command', required=True)
-    s = sp.add_parser('split', help='Split input into shares.')
-    s.add_argument('n', type=int, metavar='N',
-                   help='number of shares')
-    s.add_argument('out_dir', type=str, metavar='DIR',
-                   help='destination directory path')
-    s.add_argument('-m', type=int,
-                   help='integer M for M-of-N split: number of shares needed '
-                   'to recover input if fewer than N')
-    s.add_argument('-i', type=str, required=False,
-                   metavar='IN_FILE', help='path to input file, '
-                   'read from stdin if omitted')
-    s.add_argument('-f', required=False, choices=['DATA', 'QRCODE'],
-                   default=DEFAULT_FORMAT,
-                   help='output file format, defaults to ' + DEFAULT_FORMAT)
-    s.add_argument('-t', type=str, required=False, default='Split Secret',
-                   metavar='SECRET_NAME', help='name of secret to include on '
-                   'QRCODE images')
-    s.add_argument('-k', required=False, action='store_true',
-                   help='Skip merge check after splitting')
-    m = sp.add_parser('merge',
-                      help='Merge shares and reconstruct original input.')
-    m.add_argument('in_dirs', type=str, nargs='+',
-                   metavar='DIR',
-                   help='one or more directories containing qrcode images or '
-                   '.dat files to combine')
-    m.add_argument('-o', type=str, required=False,
-                   metavar='OUT_FILE',
-                   help='write merged result to output file, '
-                   'or stdout if omitted')
-
-    args = parser.parse_args()
-    try:
-        if args.command == 'split':
-            return do_split(args.i, args.out_dir, fmt=args.f,
-                            n=args.n, m=args.m,
-                            secret_name=args.t, skip_merge_check=args.k)
-        elif args.command == 'merge':
-            return do_merge(args.in_dirs, args.o)
-        else:
-            eprint('Invalid command: {}'.format(args.command))
-            return 1
-    except FatalError as e:
-        for arg in e.args:
-            eprint(arg)
-        return 1
-
-    return 0
-
-
-if __name__ == '__main__':
-    rc = 1
-    try:
-        main()
-        rc = 0
-    except Exception as e:
-        print('Error: %s' % e, file=sys.stderr)
-        sys.exit(rc)
-    sys.exit(core.main())
