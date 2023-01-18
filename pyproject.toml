@@ -1,8 +1,13 @@
 [project]
-name = "trivial_secret_sharing"
+name = "triss"
 version = "0.0.1"
+dependencies = [
+    "qrcode" # TODO make optional
+]
+
+
 authors = [{ name="Philip Brown", email="pdbrown.git@gmail.com" },]
-description = "Trivial secret sharing implementation with M-of-N splits."
+description = "Trivial secret sharing implementation with support for M-of-N splits."
 readme = "README.md"
 requires-python = ">=3.7"
 classifiers = [
@@ -11,6 +16,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.scripts]
+cli-name = "triss.cli:main"
+
 [project.urls]
 "Homepage" = "https://github.com/pypa/sampleproject"
 "Bug Tracker" = "https://github.com/pypa/sampleproject/issues"
@@ -18,3 +26,6 @@ classifiers = [
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["triss"]
