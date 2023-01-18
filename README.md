@@ -3,6 +3,17 @@
 
 
 # Setup
+
+To use a venv, run
+
+"$(command -v python3 || command -v python)" -m venv venv
+source venv/bin/activate
+
+Now, un-suffixed commands are available: python, pip, etc
+
+pip install -r requirements/common.txt
+
+
 Deps: External `zbar` program is needed to decode QR codes.
 Need version >= 0.23.1 released 2020-04-20 which has support for decoding
 binary data from QR Code.
