@@ -4,6 +4,7 @@ import argparse
 from . import core
 
 def main():
+    qr_ext_help = ", ".join(["." + ext for ext in core.QR_IMAGE_EXTENSIONS])
     parser = argparse.ArgumentParser(
         prog="trivial_secret_sharing",
         description="""Trivial secret sharing utility.
@@ -33,7 +34,10 @@ def main():
     m.add_argument('in_dirs', type=str, nargs='+',
                    metavar='DIR',
                    help="one or more directories containing input files to "
-                   "combine (.dat data files or .png qrcode images)")
+                   "combine")
+    s.add_argument('-f', required=False, choices=['DATA', 'QRCODE'],
+                   default=core.DEFAULT_FORMAT,
+                   help="input file format, will guess if omitted")
     m.add_argument('-o', type=str, required=False,
                    metavar='OUT_FILE',
                    help="write secret to output file, or stdout if omitted")
@@ -42,9 +46,9 @@ def main():
     if args.command == 'split':
         return core.run_cmd(core.do_split, args.i, args.out_dir, fmt=args.f,
                             n=args.n, m=args.m,
-                            secret_name=args.t, skip_merge_check=args.k)
+                            secret_name=args.t, skip_combine_check=args.k)
     elif args.command == 'combine':
-        return core.run_cmd(core.do_merge, args.in_dirs, args.o)
+        return core.run_cmd(core.do_combine, args.in_dirs, args.f, args.o)
     else:
         print(f"Invalid command: {args.command}", file=sys.stderr)
         return 1

@@ -1,4 +1,5 @@
 from collections import defaultdict
+import itertools
 import math
 import os
 from pathlib import Path
@@ -31,9 +32,10 @@ class FileSegmentEncoder(MappingEncoder):
 
     def summary(self, n_segments):
         super().summary(n_segments)
-        # Number of digits needed to print 1-based part number ordinals.
-        self.part_num_width = int(math.log10(self.n_parts)) + 1
-        self.part_numbers = defaultdict(int)
+        if n_segments > 0:
+            # Number of digits needed to print 1-based part number ordinals.
+            self.part_num_width = int(math.log10(self.n_parts)) + 1
+            self.part_numbers = defaultdict(int)
 
     def finalize(self, share_id, header):
         # print(f"finalize: seg {segment_id}, aset: {aset_id}, share: {share_id}, frag: {fragment_id}")
@@ -76,21 +78,14 @@ class FileEncoder(AppendingEncoder):
             f.write(fragment)
 
 
-def find_files(in_dirs, extension):
-    suffix = "." + extension
-    for d in in_dirs:
-        for path in Path(d).iterdir():
-            if path.suffix == suffix:
-                yield path
-
 class FileDecoder(TaggedDecoder):
 
     CHUNK_SIZE = 4096
 
-    def __init__(self, in_dirs, extension, **opts):
+    def __init__(self, in_dirs, *, file_extension="dat", **opts):
         super().__init__(**opts)
         self.in_dirs = in_dirs
-        self.extension = extension
+        self.file_extension = file_extension
 
     def read_file(self, path, *, seek=0):
         with path.open("rb") as f:
@@ -101,33 +96,21 @@ class FileDecoder(TaggedDecoder):
                     return
                 yield chunk
 
+    def find_files(self):
+        suffix = "." + self.file_extension
+        for d in self.in_dirs:
+            for path in Path(d).iterdir():
+                if path.suffix == suffix:
+                    yield path
+
     def fragment_streams(self):
-        for f in find_files(self.in_dirs, self.extension):
+        for f in self.find_files():
             yield (f, self.read_file(f))
 
     def fragment_data_stream(self, handle):
         return self.read_file(handle, seek=Header.HEADER_SIZE_BYTES)
 
 
-
-
-def test_codec(encoder, decoder, m, n, data_segments):
-    data_segments = list(data_segments)
-    encoder.encode(data_segments, m, n)
-
-    result = list(decoder.decode())
-    print(f"GOT RES {result}")
-
-    # for aset in itertools.combinations(range(n), m):
-    #     codec.use_authorized_set(aset)
-    #     decoded = list(codec.decode())
-    #     if (decoded != data_segments):
-    #         print(f"Input:  {data_segments}")
-    #         print(f"Result: {decoded}")
-    #         raise Exception("Test failed, input != decode(encode(input))")
-
-
-# d = Path("/tmp/triss-data-file-codec-test")
-# test_codec(FileEncoder(d),
-#            FileDecoder([d / "share-1", d / "share-3" ], "dat"),
-#            2, 4, [b'asdf', b'qwer'])
+def authorized_share_sets(share_parent_dir, m):
+    share_dirs = Path(share_parent_dir).iterdir()
+    return itertools.combinations(share_dirs, m)

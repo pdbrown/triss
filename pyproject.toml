@@ -1,11 +1,6 @@
 [project]
 name = "triss"
 version = "0.0.1"
-dependencies = [
-    "qrcode" # TODO make optional
-]
-
-
 authors = [{ name="Philip Brown", email="pdbrown.git@gmail.com" },]
 description = "Trivial secret sharing implementation with support for M-of-N splits."
 readme = "README.md"
@@ -16,16 +11,29 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.optional-dependencies]
+qrcode = [
+    "qrcode[pil]==7.4.2"
+]
+test = [
+    "pytest",
+    "hypothesis"
+]
+
+
 [project.scripts]
 cli-name = "triss.cli:main"
 
 [project.urls]
-"Homepage" = "https://github.com/pypa/sampleproject"
-"Bug Tracker" = "https://github.com/pypa/sampleproject/issues"
+"Homepage" = "https://github.com/pdbrown/triss"
+"Bug Tracker" = "https://github.com/pdbrown/triss/issues"
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["triss"]
+# Explicitly set "src" layout. setuptools can discover regular packages under
+# ./src automatically too, but won't discover namespace packages (packages
+# without an __init__.py file) unless configured as follows.
+[tool.setuptools.packages.find]
+where = ["src"]

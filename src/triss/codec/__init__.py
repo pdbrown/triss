@@ -146,7 +146,9 @@ class MappingEncoder(Encoder):
         raise NotImplementedError()
 
     def encode_segments(self, secret_data_segments, m, n, authorized_sets):
+        n_segments = 0
         for segment_id, secret_segment in enumerate(secret_data_segments):
+            n_segments += 1
             # print(f"Segment: {segment_id}")
             for aset in authorized_sets:
                 # print(f"  Aset: {aset}")
@@ -160,7 +162,7 @@ class MappingEncoder(Encoder):
                     if fragment_id == m - 1:
                         header.set_flag(Header.FLAG_LAST_FRAGMENT)
                     self.write(share_id, header, fragment)
-        return segment_id + 1
+        return n_segments
 
 
 class AppendingEncoder(Encoder):
@@ -181,7 +183,7 @@ class AppendingEncoder(Encoder):
             first_segment = next(secret_data_segments)
         except StopIteration:
             # No segments available
-            return
+            return 0
 
         self.mapping_encoder.encode_segments(
             [first_segment], m, n, authorized_sets)
@@ -226,8 +228,8 @@ TaggedFragment = namedtuple("TaggedFragment", ["header", "handle"])
 
 class TaggedDecoder(Decoder):
 
-    def __init__(self, *, output_chunk_size=4096):
-        self.output_chunk_size = output_chunk_size
+    def __init__(self, *, fragment_read_size=4096):
+        self.fragment_read_size = fragment_read_size
 
     def fragment_streams(self):
         """Return iterator over (handle, fragment_stream) pairs."""
@@ -253,7 +255,7 @@ class TaggedDecoder(Decoder):
                 print("Warning: Failed to parse header of file: ", handle)
                 continue
 
-            print(f"parsed header:", header.segment_id, header.aset_id, header.fragment_id)
+            # print(f"parsed header:", header.segment_id, header.aset_id, header.fragment_id)
             by_segment[header.segment_id].append(TaggedFragment(header, handle))
 
             if (header.test_flag(Header.FLAG_LAST_FRAGMENT)):
@@ -287,7 +289,7 @@ class TaggedDecoder(Decoder):
         return None
 
     def fragments(self, authorized_set):
-        frag_streams = [byte_seqs.resize_seqs(self.output_chunk_size,
+        frag_streams = [byte_seqs.resize_seqs(self.fragment_read_size,
                                               self.fragment_data_stream(h))
                         for h
                         in authorized_set]

@@ -1,4 +1,3 @@
-import itertools
 from collections import defaultdict
 
 from triss.codec import MappingEncoder, Decoder
@@ -47,21 +46,3 @@ class MemoryCodec(MappingEncoder, Decoder):
             if len(aset_frags) == self.m:
                 return aset_frags
         return None
-
-
-def test_codec(codec, m, n, data_segments):
-    data_segments = list(data_segments)
-    codec.encode(data_segments, m, n)
-
-    for aset in itertools.combinations(range(n), m):
-        codec.use_authorized_set(aset)
-        decoded = list(codec.decode())
-        print(f"Input:  {data_segments}")
-        print(f"Result: {decoded}")
-
-        if (decoded != data_segments):
-            raise Exception("Test failed, input != decode(encode(input))")
-
-
-
-test_codec(MemoryCodec(), 2, 4, [b'asdf', b'qwer'])

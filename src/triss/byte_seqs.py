@@ -17,8 +17,9 @@ def take_and_drop(n, byte_seqs):
     concatenated onto the front of the returned byte_seqs.
     """
     n = int(n)
-    if n < 0:
-        n = 0
+    if n <= 0:
+        return b'', byte_seqs
+
     byte_seqs = iter(byte_seqs)
     acc_size = 0
     acc = []
@@ -65,6 +66,7 @@ def resize_seqs(chunk_size, byte_seqs):
     while True:
         try:
             chunk, byte_seqs = take_and_drop(chunk_size, byte_seqs)
-            yield chunk
+            if chunk:
+                yield chunk
         except StopIteration:
             return

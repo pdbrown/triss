@@ -1,3 +1,4 @@
+import mimetypes
 from pathlib import Path
 import re
 import subprocess
@@ -7,8 +8,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from triss import byte_seqs
 from triss.codec import Header, TaggedDecoder
-from triss.codecs.data_file import FileSegmentEncoder, FileDecoder
+from triss.codec.data_file import FileSegmentEncoder, FileDecoder
 
+mimetypes.init()
 
 # From https://www.qrcode.com/en/about/version.html
 # Set QR_SIZE_MAX_BYTES to be size of largest QR code with highest error
@@ -149,39 +151,16 @@ def decode_qr_code(path):
 
 class QRDecoder(FileDecoder):
 
+    def __init__(self, in_dirs, **opts):
+        super().__init__(in_dirs, **opts)
+
     def read_file(self, path, *, seek=0):
         data = decode_qr_code(path)
         yield(data[seek:])
 
-
-
-
-
-
-def test_codec(encoder, decoder, m, n, data_segments):
-    data_segments = list(data_segments)
-    encoder.encode(data_segments, m, n)
-
-    result = list(decoder.decode())
-    print(f"GOT RES {result}")
-
-    # for aset in itertools.combinations(range(n), m):
-    #     codec.use_authorized_set(aset)
-    #     decoded = list(codec.decode())
-    #     if (decoded != data_segments):
-    #         print(f"Input:  {data_segments}")
-    #         print(f"Result: {decoded}")
-    #         raise Exception("Test failed, input != decode(encode(input))")
-
-import random
-def junk_data():
-    return random.randbytes(2000)
-
-
-d = Path("/tmp/triss-data-file-codec-test")
-test_codec(QREncoder(d, "test secret"),
-           QRDecoder([d / "share-1", d / "share-3" ], "png"),
-           2, 4,
-           [b'asdf', b'qwer']
-           # {junk_data()}
-           )
+    def find_files(self):
+        for d in self.in_dirs:
+            for path in Path(d).iterdir():
+                mime_type = mimetypes.types_map.get(path.suffix.lower())
+                if mime_type and re.split('/', mime_type)[0] == 'image':
+                    yield path

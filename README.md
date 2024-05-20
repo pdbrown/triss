@@ -4,6 +4,17 @@
 
 # Setup
 
+New setup
+pip install --editable .
+pip install --editable '.[qrcode]'
+pip install --editable '.[test]'
+
+
+
+
+
+
+
 To use a venv, run
 
 "$(command -v python3 || command -v python)" -m venv venv
@@ -23,7 +34,7 @@ See also https://github.com/mchehab/zbar/tree/6092b033b35fdcc7ee95fc366ed303f475
 - Windows: ???
 NOTE there is a library that could have worked, pyzbar, but it doesn't handle
 binary qr codes properly.
-
+See https://github.com/NaturalHistoryMuseum/pyzbar/pull/82
 
 pip download 'qrcode[pil]'
 
