@@ -2,12 +2,12 @@
 name = "triss"
 version = "0.0.1"
 authors = [{ name="Philip Brown", email="pdbrown.git@gmail.com" },]
-description = "Trivial secret sharing implementation with support for M-of-N splits."
+description = "Trivial secret sharing with support for M-of-N splits."
 readme = "README.md"
 requires-python = ">=3.7"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
 ]
 
