@@ -1,11 +1,10 @@
 PYTEST := python -m pytest
 
 test:
-	$(PYTEST) -v tests/test_main.py
-	# $(PYTEST) -v test_main.py --durations=0
+	$(PYTEST) -v tests/main tests/generative
 
-test-stress:
-	$(PYTEST) -v tests/test_stress.py -s
+stress:
+	$(PYTEST) -vs tests/stress
 
 
 .PHONY: test test-stress

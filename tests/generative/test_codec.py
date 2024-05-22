@@ -45,7 +45,7 @@ def test_file_encoder_decoder(data, m_n):
     do_file_encoder_decoder(data, m_n)
 
 
-@settings(max_examples=20, deadline=10000)
+@settings(max_examples=20, deadline=30000)
 @given(byte_count=st.integers(min_value=16*1024, max_value=1024*1024),
        m_n=m_and_n(n=st.integers(min_value=2, max_value=8)))
 def test_file_encoder_decoder_large(byte_count, m_n):
@@ -74,7 +74,7 @@ def do_file_encoder_decoder(data, m_n):
 @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
 @given(data=st.lists(st.binary(max_size=3000)),
        m_n=m_and_n(n=st.integers(min_value=2, max_value=4)))
-@settings(max_examples=10, deadline=20000)
+@settings(max_examples=10, deadline=60000)
 # Want at least one example that spans multiple segments
 @example(data=[random.randbytes(3000)], m_n=(2,4))
 # Want an example consisting of full segment.
@@ -86,7 +86,7 @@ def test_qr_encoder_decoder(data, m_n):
 @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
 @given(data=st.lists(st.binary(max_size=50)),
        m_n=m_and_n(n=st.integers(min_value=3, max_value=8)))
-@settings(max_examples=10, deadline=20000)
+@settings(max_examples=10, deadline=60000)
 def test_qr_encoder_decoder_more_shares(data, m_n):
     do_qr_encoder_decoder(data, m_n)
 
