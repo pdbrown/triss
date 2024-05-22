@@ -1,3 +1,4 @@
+dist/
 .hypothesis/
 __pycache__/
 src/triss.egg-info

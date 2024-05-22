@@ -1,7 +1,7 @@
 [project]
 name = "triss"
-version = "0.0.1"
-authors = [{ name="Philip Brown", email="pdbrown.git@gmail.com" },]
+version = "1.0.0"
+authors = [{name="Philip Brown", email="pdbrown.git@gmail.com"}]
 description = "Trivial secret sharing with support for M-of-N splits."
 readme = "README.md"
 requires-python = ">=3.7"
@@ -13,11 +13,11 @@ classifiers = [
 
 [project.optional-dependencies]
 qrcode = [
-    "qrcode[pil]==7.4.2"
+    "qrcode[pil]>=7.4.2"
 ]
 test = [
-    "pytest",
-    "hypothesis"
+    "pytest>=8.2.1",
+    "hypothesis>=6.102.4"
 ]
 
 

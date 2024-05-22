@@ -28,6 +28,8 @@ QR_BOX_SIZE = 10
 QR_BORDER = 5
 MARGIN = QR_BOX_SIZE * QR_BORDER
 
+TRY_FONTS = ["Helvetica.ttf", "DejaVuSans.ttf", "Arial.ttf"]
+
 def qr_image(data):
     qr = qrcode.QRCode(
         # int in range [1,40] to determine size, set to None and use fit= to
@@ -55,18 +57,26 @@ def merge_img_y(im_top, im_bottom):
     im.paste(im_bottom, (0, im_top.size[1]))
     return im
 
+def find_font(size):
+    for font in TRY_FONTS:
+        try:
+            return ImageFont.truetype(font, size)
+        except Exception:
+            pass
+    return None
+
 def add_caption(img, title, subtitle=None):
     w = max(img.size[0], 500)
     h = 320
     capt = Image.new('RGB', (w, h), 'white')
     d = ImageDraw.Draw(capt)
-    title_font = ImageFont.truetype('fonts/DejaVuSans.ttf', 48)
+    title_font = find_font(48)
     line_y = 310
     d.line(((MARGIN, line_y), (w - MARGIN, line_y)), 'gray')
     d.text((w/2, 70), title, fill='black', font=title_font, anchor='md',
            align='center')
     if subtitle:
-        body_font = ImageFont.truetype('fonts/DejaVuSans.ttf', 24)
+        body_font = find_font(24)
         d.text((w/2, 300), subtitle, fill='black', font=body_font, anchor='md',
                align='center')
 
