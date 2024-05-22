@@ -39,9 +39,11 @@ def test_memory_codec(data, m_n):
         decoded = list(codec.decode())
         assert decoded == data
 
+
 @given(data=st.lists(st.binary()), m_n=m_and_n())
 def test_file_encoder_decoder(data, m_n):
     do_file_encoder_decoder(data, m_n)
+
 
 @settings(max_examples=20, deadline=10000)
 @given(byte_count=st.integers(min_value=16*1024, max_value=1024*1024),
@@ -68,6 +70,7 @@ def do_file_encoder_decoder(data, m_n):
 
         assert list(kb_stream(decoder.decode())) == list(kb_stream(data))
 
+
 @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
 @given(data=st.lists(st.binary(max_size=3000)),
        m_n=m_and_n(n=st.integers(min_value=2, max_value=4)))
@@ -78,6 +81,7 @@ def do_file_encoder_decoder(data, m_n):
 @example(data=[random.randbytes(QR_DATA_SIZE_BYTES)], m_n=(2,3))
 def test_qr_encoder_decoder(data, m_n):
     do_qr_encoder_decoder(data, m_n)
+
 
 @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
 @given(data=st.lists(st.binary(max_size=50)),

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from triss.codec import Header, MappingEncoder, AppendingEncoder, TaggedDecoder
+from triss.util import eprint, FatalError
 
 def set_last_segment(path):
     with path.open(mode='rb+') as f:
@@ -38,7 +39,7 @@ class FileSegmentEncoder(MappingEncoder):
             self.part_numbers = defaultdict(int)
 
     def finalize(self, share_id, header):
-        # print(f"finalize: seg {segment_id}, aset: {aset_id}, share: {share_id}, frag: {fragment_id}")
+        # eprint(f"finalize: seg {segment_id}, aset: {aset_id}, share: {share_id}, frag: {fragment_id}")
         last_segment = header.segment_id == self.n_segments - 1
         self.part_numbers[share_id] += 1
         part_number = self.part_numbers[share_id]
@@ -50,7 +51,7 @@ class FileSegmentEncoder(MappingEncoder):
                    f"_of_{self.n_parts}.dat"
         new_path = old_path.parent / new_name
         os.replace(old_path, new_path)
-        # print(f"rename: {old_path} -> {new_path}")
+        # eprint(f"rename: {old_path} -> {new_path}")
         if last_segment:
             set_last_segment(new_path)
 
@@ -109,8 +110,3 @@ class FileDecoder(TaggedDecoder):
 
     def fragment_data_stream(self, handle):
         return self.read_file(handle, seek=Header.HEADER_SIZE_BYTES)
-
-
-def authorized_share_sets(share_parent_dir, m):
-    share_dirs = Path(share_parent_dir).iterdir()
-    return itertools.combinations(share_dirs, m)

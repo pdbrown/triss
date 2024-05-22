@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 from triss import byte_seqs
 from triss.codec import Header, TaggedDecoder
 from triss.codec.data_file import FileSegmentEncoder, FileDecoder
+from triss.util import eprint, FatalError
 
 mimetypes.init()
 
@@ -94,7 +95,7 @@ class QREncoder(FileSegmentEncoder):
             f"Part {part_number}/{self.n_parts}\n" \
             f"Recover secret with {self.m} of {self.n} shares.\n" \
             f"Require all parts of each share.\n" \
-            "Header Details:\n" \
+            "--- Header Details ---\n" \
             f"Version: {header.version}\n" \
             f"Segment: {header.segment_id}\n" \
             f"Authorized Set: {header.aset_id}\n" \
@@ -129,14 +130,14 @@ def decode_qr_code(path):
          '--raw', '-Sbinary', path],
         capture_output=True)
     if proc.returncode == 4:
-        print(f"Warning: No QRCODE detected in {path}")
+        eprint(f"Warning: No QRCODE detected in {path}")
         return bytes()
     if proc.returncode < 0:
         # Then terminated by signal
-        print(f"Warning: zbarimg terminated by signal {proc.returncode}")
+        eprint(f"Warning: zbarimg terminated by signal {proc.returncode}")
         return bytes()
     if proc.returncode != 0:
-        print(proc.stderr.decode())
+        eprint(proc.stderr.decode())
         raise Exception(f"Failed to scan QRCODE in {path}")
     # Check stderr status message, looks like:
     # scanned 1 barcode symbols from 1 images in 0 seconds
@@ -144,7 +145,7 @@ def decode_qr_code(path):
                   proc.stderr.decode())
     # Want 1 qrcode per (1) image
     if m.group(1) != '1' or m.group(2) != '1':
-        print(proc.stderr.decode())
+        eprint(proc.stderr.decode())
         raise Exception(f"Error: Got unexpected number of QRCODEs in {path}")
     return proc.stdout
 

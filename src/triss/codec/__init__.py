@@ -3,7 +3,7 @@ from collections import defaultdict, namedtuple
 
 from triss import byte_seqs
 from triss import crypto
-
+from triss.util import eprint, FatalError
 
 class Header:
     VERSION = 1
@@ -149,9 +149,9 @@ class MappingEncoder(Encoder):
         n_segments = 0
         for segment_id, secret_segment in enumerate(secret_data_segments):
             n_segments += 1
-            # print(f"Segment: {segment_id}")
+            # eprint(f"Segment: {segment_id}")
             for aset in authorized_sets:
-                # print(f"  Aset: {aset}")
+                # eprint(f"  Aset: {aset}")
                 for fragment_id, (share_id, fragment) in enumerate(
                         zip(aset['share_ids'],
                             crypto.split_secret(secret_segment, m))):
@@ -247,15 +247,15 @@ class TaggedDecoder(Decoder):
                 chunk, frag_stream = byte_seqs.take_and_drop(
                     Header.HEADER_SIZE_BYTES, frag_stream)
             except StopIteration:
-                print("Warning: No data in file, can't parse header: ", handle)
+                eprint("Warning: No data in file, can't parse header: ", handle)
                 continue
             try:
                 header = Header.parse(chunk)
             except ValueError:
-                print("Warning: Failed to parse header of file: ", handle)
+                eprint("Warning: Failed to parse header of file: ", handle)
                 continue
 
-            # print(f"parsed header:", header.segment_id, header.aset_id, header.fragment_id)
+            # eprint(f"parsed header:", header.segment_id, header.aset_id, header.fragment_id)
             by_segment[header.segment_id].append(TaggedFragment(header, handle))
 
             if (header.test_flag(Header.FLAG_LAST_FRAGMENT)):
@@ -274,7 +274,7 @@ class TaggedDecoder(Decoder):
             if segment_id + 1 == n_segments:
                 for frag in segment:
                     if not frag.header.test_flag(Header.FLAG_LAST_SEGMENT):
-                        print(f"Warning: last segment (segment_id={segment_id}) didn't have FLAG_LAST_SEGMENT set. May be missing trailing data.")
+                        eprint(f"Warning: last segment (segment_id={segment_id}) didn't have FLAG_LAST_SEGMENT set. May be missing trailing data.")
             yield segment
 
     def authorized_set(self, segment):
@@ -285,7 +285,7 @@ class TaggedDecoder(Decoder):
             aset[tagged_frag.header.fragment_id] = tagged_frag
             if len(aset) == self.m and validate_aset(aset, self.m):
                 return [tf.handle for tf in aset.values()]
-        print(f"Warning: unable to find complete authorized set of size {self.m}")
+        eprint(f"Warning: unable to find complete authorized set of size {self.m}")
         return None
 
     def fragments(self, authorized_set):
@@ -307,6 +307,6 @@ def validate_aset(aset, m):
     ok = True
     for i in range(m):
         if not aset.get(i):
-            print(f"Warning: found aset of correct size {self.m}, but it is missing fragment_id={i}")
+            eprint(f"Warning: found aset of correct size {self.m}, but it is missing fragment_id={i}")
             ok = False
     return ok

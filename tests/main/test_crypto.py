@@ -30,6 +30,8 @@ def test_split_combine():
     zeros = b'\x00\x00\x00\x00'
     frags = list(split_secret(xs, 3))
     assert len(frags) == 3
+    for frag in frags:
+        assert len(frag) == 4
     for f1, f2, f3 in [[0, 1, 2], [0, 2, 1], [1, 2, 0]]:
         if frags[f1] == zeros and frags[f2] == zeros:
             # Highly unlikely we get here, but have gotten here so bail early.

@@ -69,6 +69,7 @@ def test_take_and_drop(bs_head):
     rest = flatten_chunks(bs)
     assert head + rest == flatten_chunks(bs_input)
 
+
 @given(xs=st.lists(st.binary()), n=st.integers(min_value=1, max_value=50))
 @settings(max_examples=200)
 def test_resize_seqs(xs, n):

@@ -1,15 +1,16 @@
-import sys
 import argparse
+import sys
 
-from . import core
+from triss import core
+from triss.util import eprint, FatalError
 
-def main():
-    qr_ext_help = ", ".join(["." + ext for ext in core.QR_IMAGE_EXTENSIONS])
+def cli():
     parser = argparse.ArgumentParser(
-        prog="trivial_secret_sharing",
-        description="""Trivial secret sharing utility.
+        prog="triss",
+        description="""Trivial secret sharing.
     Split input into M-of-N shares or recover input from a set of shares.""")
     sp = parser.add_subparsers(dest='command', required=True)
+
     s = sp.add_parser('split', help="Split secret into shares.")
     s.add_argument('n', type=int, metavar='N',
                    help="number of shares")
@@ -20,7 +21,7 @@ def main():
     s.add_argument('-i', type=str, required=False,
                    metavar='IN_FILE',
                    help="path to input file, read from stdin if omitted")
-    s.add_argument('-f', required=False, choices=['DATA', 'QRCODE'],
+    s.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
                    default=core.DEFAULT_FORMAT,
                    help="output file format, defaults to " + \
                          core.DEFAULT_FORMAT)
@@ -29,13 +30,14 @@ def main():
                    help="name of secret to include on QRCODE images")
     s.add_argument('-k', required=False, action='store_true',
                    help="skip combine check after splitting")
+
     m = sp.add_parser('combine',
                       help="Combine shares and reconstruct secret.")
     m.add_argument('in_dirs', type=str, nargs='+',
                    metavar='DIR',
                    help="one or more directories containing input files to "
                    "combine")
-    s.add_argument('-f', required=False, choices=['DATA', 'QRCODE'],
+    m.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
                    default=core.DEFAULT_FORMAT,
                    help="input file format, will guess if omitted")
     m.add_argument('-o', type=str, required=False,
@@ -44,15 +46,23 @@ def main():
 
     args = parser.parse_args()
     if args.command == 'split':
-        return core.run_cmd(core.do_split, args.i, args.out_dir, fmt=args.f,
-                            n=args.n, m=args.m,
-                            secret_name=args.t, skip_combine_check=args.k)
+        core.do_split(args.i, args.out_dir, output_format=args.c,
+                      m=args.m, n=args.n,
+                      secret_name=args.t, skip_combine_check=args.k)
     elif args.command == 'combine':
-        return core.run_cmd(core.do_combine, args.in_dirs, args.f, args.o)
+        core.do_combine(args.in_dirs, args.o, args.c)
     else:
-        print(f"Invalid command: {args.command}", file=sys.stderr)
-        return 1
+        raise FatalError(f"Invalid command: {args.command}")
 
+
+def main():
+    try:
+        cli()
+        return 0
+    except FatalError as e:
+        for arg in e.args:
+            eprint(arg)
+        return 1
 
 if __name__ == '__main__':
     sys.exit(main())

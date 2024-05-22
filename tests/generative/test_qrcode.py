@@ -4,6 +4,7 @@ import copy
 import random
 
 from . import gen_common
+from .. import helpers
 
 from triss import byte_seqs
 from triss import crypto
@@ -27,12 +28,11 @@ def test_qrencode_decode(xs, caption, subtitle, tmp_path):
     decoded = qrcode.decode_qr_code(f)
     try:
         assert decoded == xs
-    except AssertionError as e:
-        import subprocess
-        subprocess.check_output(['mkdir', '-p', '/tmp/TEST_LOG'])
-        g = subprocess.check_output(['mktemp', '/tmp/TEST_LOG/img.XXXXXX.png']).decode().strip()
-        h = g + '.txt'
-        subprocess.check_output(['cp', str(f), g])
-        with open(h, 'wb') as hd:
-            hd.write(xs)
+    except Exception as e:
+        indata = tmp_path / "input.dat"
+        with indata.open('wb') as f:
+            f.write(xs)
+        outdata = tmp_path / "output.dat"
+        with outdata.open('wb') as f:
+            f.write(decoded)
         raise e

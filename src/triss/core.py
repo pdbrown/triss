@@ -1,62 +1,97 @@
 from collections import defaultdict, namedtuple
+import contextlib
+import itertools
 from pathlib import Path
 import os
 import re
 import sys
 import tempfile
 
+from triss.byte_seqs import resize_seqs
 from triss.codec import data_file
+from triss.util import eprint, FatalError
+
 try:
     from triss.codec import qrcode
     have_qrcode = True
 except ModuleNotFoundError:
     have_qrcode = False
 
+
 DEFAULT_FORMAT='DATA'
 TRY_DECODERS = [data_file.FileDecoder]
 if have_qrcode:
     TRY_DECODERS.append(qrcode.QRDecoder)
 
-def eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
 
-class FatalError(Exception):
-    pass
+def open_input(path):
+    if path:
+        return open(path, 'rb')
+    else:
+        return contextlib.nullcontext(sys.stdin.buffer)
 
+def open_output(path):
+    if path:
+        return open(path, 'wb')
+    else:
+        return contextlib.nullcontext(sys.stdout.buffer)
 
 def read_buffered(path):
-    with path.open() as f:
+    with open_input(path) as f:
         chunk = f.read1()
         while chunk:
             yield chunk
-            chunk = fd.read1()
+            chunk = f.read1()
 
-def list_files(dirs):
-    """
-    Yield seq of 'file infos': [{path, type} ...]
-    """
-    for d in dirs:
-        for f in os.listdir(d):
-            p = os.path.join(d, f)
-            if f.endswith('.png'):
-                yield {'path': p, 'type': 'QRCODE'}
-            elif f.endswith('.dat'):
-                yield {'path': p, 'type': 'DATA'}
+def authorized_share_sets(share_parent_dir, m):
+    share_dirs = Path(share_parent_dir).iterdir()
+    return itertools.combinations(share_dirs, m)
 
-def run_cmd(cmd, *args, **kwargs):
-    for k in [k for (k, v) in kwargs.items() if v is None]:
-        del kwargs[k]
-    try:
-        rc = cmd(*args, **kwargs)
-    except FatalError as e:
-        for arg in e.args:
-            eprint(arg)
-        return 1
-    return rc
+def assert_byte_seqs_equal(bs_x, bs_y, err_msg="Byte seqs not equal!"):
+    bs_x = resize_seqs(4096, bs_x)
+    bs_y = resize_seqs(4096, bs_y)
+
+    for (xs, ys) in zip(bs_x, bs_y):
+        if xs != ys:
+            raise FatalError(err_msg)
+    for bs in [bs_x, bs_y]:
+        try:
+            next(bs)
+            # Ensure byte seqs have same length. Should be empty so expect
+            # StopIteration.
+            raise FatalError(err_msg)
+        except StopIteration:
+            pass
+
+def check_asets_combine(in_file, out_dir, m, input_format):
+    with tempfile.TemporaryDirectory() as d:
+        for share_dirs in authorized_share_sets(out_dir, m):
+            f = Path(d) / "check_output"
+            try:
+                do_combine(share_dirs, f, input_format)
+            except FatalError as e:
+                for arg in e.args:
+                    eprint(arg)
+                raise FatalError(
+                    "Combine check failed! Unable to combine shares in " \
+                    f"in {share_dirs}.")
+            if in_file:
+                assert_byte_seqs_equal(
+                    read_buffered(in_file),
+                    read_buffered(f),
+                    err_msg="Combine check failed! Result of combining " \
+                            "shares is not equal to original input.")
+            f.unlink()
+
+    if not in_file:
+        eprint("Warning: Requested combine-check after splitting, but data " \
+               "was provided on stdin, so can't confirm integrity of " \
+               "combined result.")
+
 
 
 def do_split(in_file, out_dir,
-             output_format=DEFAULT_FORMAT, n=2, m=2,
+             output_format=DEFAULT_FORMAT, m=2, n=2,
              secret_name="Split secret", skip_combine_check=False):
 
     if output_format == 'DATA':
@@ -72,8 +107,7 @@ def do_split(in_file, out_dir,
     encoder.encode(read_buffered(in_file), m, n)
 
     if not skip_combine_check:
-        check_asets_combine(in_file, out_dir, m)
-
+        check_asets_combine(in_file, out_dir, m, output_format)
 
 
 def do_combine(dirs, out_file, input_format=None):
@@ -91,7 +125,7 @@ def do_combine(dirs, out_file, input_format=None):
         decoder = mk_decoder(dirs)
         output_chunks = decoder.decode()
         n_chunks = 0
-        with Path(out_file).open('wb') as f:
+        with open_output(out_file) as f:
             for chunk in output_chunks:
                 if chunk:
                     f.write(chunk)
@@ -99,16 +133,3 @@ def do_combine(dirs, out_file, input_format=None):
         if n_chunks > 0:
             return True
     raise FatalError(f"Unable to decode data in {dirs}.")
-
-
-def check_asets_combine(in_file, out_dir, m, input_format):
-    with tempfile.TemporaryDirectory() as d:
-        for share_dirs in data_file.authorized_share_sets(out_dir, m):
-            f = Path(d) / "check_output"
-            try:
-                do_combine(share_dirs, f, input_format)
-            except FatalError as e:
-                for arg in e.args:
-                    eprint(arg)
-                raise FatalError(f"Failed to reproduce input combining shares "
-                                 f"in {share_dirs}.")
