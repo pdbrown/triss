@@ -2,6 +2,7 @@ import math
 import itertools
 import secrets
 
+from triss.util import ErrorMessage
 
 def fletchers_checksum_16(xs):
     """
@@ -34,7 +35,7 @@ def split_secret(secret_bytes, n):
     returns all the keys and the pad."""
     n_keys = int(n) - 1
     if n_keys < 1:
-        raise Exception(
+        raise ErrorMessage(
             "Refusing to return secret_bytes without splitting, require at least "
             "N=2 fragments. Check number of shares.")
 

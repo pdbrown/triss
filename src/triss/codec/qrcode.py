@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 from triss import byte_seqs
 from triss.codec import Header, TaggedDecoder
 from triss.codec.data_file import FileSegmentEncoder, FileDecoder
-from triss.util import eprint, FatalError
+from triss.util import ErrorMessage, eprint
 
 mimetypes.init()
 
@@ -130,15 +130,24 @@ def decode_qr_code(path):
          '--raw', '-Sbinary', path],
         capture_output=True)
     if proc.returncode == 4:
-        eprint(f"Warning: No QRCODE detected in {path}")
+        eprint(f"Warning: No QRCODE detected in {path}. Skipping it.")
         return bytes()
     if proc.returncode < 0:
         # Then terminated by signal
-        eprint(f"Warning: zbarimg terminated by signal {proc.returncode}")
+        eprint(f"Warning: zbarimg terminated by signal {proc.returncode} "
+               f"while attempting to read QRCODE in {path}. Skipping it.")
+        return bytes()
+    imagemagick_error = proc.returncode == 2
+    bad_file_format = proc.returncode == 1 and \
+        re.search(r'no decode delegate', proc.stderr.decode())
+    if imagemagick_error or bad_file_format:
+        eprint(f"Warning: unable to read file as QRCODE image: {path}. "
+               "Skipping it.")
         return bytes()
     if proc.returncode != 0:
         eprint(proc.stderr.decode())
-        raise Exception(f"Failed to scan QRCODE in {path}")
+        raise ErrorMessage(
+            f"Error: Failed to scan QRCODE in {path}. Aborting.")
     # Check stderr status message, looks like:
     # scanned 1 barcode symbols from 1 images in 0 seconds
     m = re.search(r'scanned (\d+) barcode.*from (\d+) image',
@@ -146,7 +155,9 @@ def decode_qr_code(path):
     # Want 1 qrcode per (1) image
     if m.group(1) != '1' or m.group(2) != '1':
         eprint(proc.stderr.decode())
-        raise Exception(f"Error: Got unexpected number of QRCODEs in {path}")
+        eprint(f"Warning: Got unexpected number of QRCODEs in {path}. " \
+               "Skipping it.")
+        return bytes()
     return proc.stdout
 
 
@@ -154,6 +165,19 @@ class QRDecoder(FileDecoder):
 
     def __init__(self, in_dirs, **opts):
         super().__init__(in_dirs, **opts)
+        try:
+            proc = subprocess.run(['zbarimg', '--version'],
+                                  capture_output=True)
+        except FileNotFoundError:
+            raise ErrorMessage(
+                "The external program zbarimg is required to decode QRCODEs "
+                "but is not available on the PATH.")
+        if proc.returncode != 0:
+            eprint(proc.stderr.decode())
+            raise ErrorMessage(
+                "The external program zbarimg is required to decode QRCODEs "
+                "appears to be broken. Try running: zbarimg --version")
+
 
     def read_file(self, path, *, seek=0):
         data = decode_qr_code(path)

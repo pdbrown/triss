@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from triss.codec import Header, MappingEncoder, AppendingEncoder, TaggedDecoder
-from triss.util import eprint, FatalError
+from triss.util import ErrorMessage, eprint
 
 def set_last_segment(path):
     with path.open(mode='rb+') as f:

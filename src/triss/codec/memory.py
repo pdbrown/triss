@@ -30,7 +30,7 @@ class MemoryCodec(MappingEncoder, Decoder):
 
     def segments(self):
         if self.decoder_share_ids is None:
-            raise Error("Call use_authorized_set first");
+            raise Exception("Call use_authorized_set first");
         for segment in self.store:
             frags = []
             for share_id in self.decoder_share_ids:

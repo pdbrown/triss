@@ -3,7 +3,7 @@ from collections import defaultdict, namedtuple
 
 from triss import byte_seqs
 from triss import crypto
-from triss.util import eprint, FatalError
+from triss.util import ErrorMessage, eprint
 
 class Header:
     VERSION = 1
@@ -101,10 +101,10 @@ class Encoder:
     def configure(self, m, n):
         m = m or n
         if m < 2 or n < 2:
-            raise FatalError("Must split into at least 2 shares.")
+            raise ErrorMessage("Must split into at least 2 shares.")
         if m > n:
-            raise FatalError("M cannot be larger than N for M-of-N split: "
-                             f"got {m}-of-{n}")
+            raise ErrorMessage("M cannot be larger than N for M-of-N split: "
+                             f"got M={m} of N={n}")
         self.m = m
         self.n = n
 
@@ -205,6 +205,16 @@ class AppendingEncoder(Encoder):
 
 
 class Decoder:
+    # Helpers
+    def name(self):
+        return type(self).__name__
+
+    def eprint(self, *args):
+        eprint(f"{self.name()}:", *args)
+
+    def throw(self, *args):
+        raise ErrorMessage(" ".join([self.name(), *args]))
+
     # Interface
     def segments(self):
         raise NotImplementedError()
@@ -219,7 +229,6 @@ class Decoder:
     def decode(self):
         for segment in self.segments():
             authorized_set = self.authorized_set(segment)
-            authorized_set = list(authorized_set)
             for chunk_fragments in self.fragments(authorized_set):
                 yield crypto.combine_fragments(chunk_fragments)
 
@@ -230,6 +239,8 @@ class TaggedDecoder(Decoder):
 
     def __init__(self, *, fragment_read_size=4096):
         self.fragment_read_size = fragment_read_size
+        self.by_segment = defaultdict(list)
+        self.m = None
 
     def fragment_streams(self):
         """Return iterator over (handle, fragment_stream) pairs."""
@@ -239,43 +250,85 @@ class TaggedDecoder(Decoder):
         """Return iterator over fragment data chunks."""
         raise NotImplementedError()
 
+    def print_discovered_fragments(self):
+        if self.by_segment:
+            self.eprint("Share fragments discovered:")
+            for segment_id in sorted(self.by_segment.keys()):
+                for tagged_frag in self.by_segment[segment_id]:
+                    h = tagged_frag.header
+                    self.eprint(f"segment_id={h.segment_id}, "
+                                f"aset_id={h.aset_id}, "
+                                f"fragment_id={h.fragment_id}: "
+                                f"{tagged_frag.handle}")
+        else:
+            self.eprint("No share fragments discovered.")
+
     def segments(self):
         """Yield lists of TaggedFragments, one list per segment."""
-        by_segment = defaultdict(list)
         for handle, frag_stream in self.fragment_streams():
             try:
                 chunk, frag_stream = byte_seqs.take_and_drop(
                     Header.HEADER_SIZE_BYTES, frag_stream)
             except StopIteration:
-                eprint("Warning: No data in file, can't parse header: ", handle)
+                self.eprint("Warning: No data in file, can't parse header: "
+                            f"{handle}. Skipping.")
                 continue
             try:
                 header = Header.parse(chunk)
-            except ValueError:
-                eprint("Warning: Failed to parse header of file: ", handle)
+            except ValueError as e:
+                self.eprint(e)
+                self.eprint(f"Warning: Failed to parse header: {handle}. "
+                            "Skipping.")
                 continue
 
             # eprint(f"parsed header:", header.segment_id, header.aset_id, header.fragment_id)
-            by_segment[header.segment_id].append(TaggedFragment(header, handle))
+            self.by_segment[header.segment_id].append(
+                TaggedFragment(header, handle))
 
             if (header.test_flag(Header.FLAG_LAST_FRAGMENT)):
                 m = header.fragment_id + 1
-                if not hasattr(self, 'm'):
+                if self.m is None:
                     self.m = m
                 elif m != self.m:
-                    raise Exception(f"Inconsistent fragment count")
+                    self.print_discovered_fragments()
+                    self.throw("Error: Inconsistent fragment count: "
+                               f"old={self.m}, new={m}")
+
+        if self.m is None:
+            self.print_discovered_fragments()
+            if not self.by_segment:
+                msg = "Warning: No input found."
+            else:
+                msg = "Error: Unable to find complete set of fragments " \
+                    "because no fragment has the Header.FLAG_LAST_FRAGMENT " \
+                    "header flag set: Unable to determine the required " \
+                    "number of fragments."
+            self.throw(msg)
 
         segment_id = 0
-        n_segments = len(by_segment)
+        n_segments = len(self.by_segment)
         for segment_id in range(n_segments):
-            segment = by_segment.get(segment_id)
+            segment = self.by_segment.get(segment_id)
             if not segment:
-                raise Exception(f"No segment for segment_id={segment_id}. Expected {len(by_segment)} segments.")
+                self.print_discovered_fragments()
+                self.throw(f"No segment for segment_id={segment_id}. "
+                           f"Expected {len(self.by_segment)} segments.")
             if segment_id + 1 == n_segments:
                 for frag in segment:
                     if not frag.header.test_flag(Header.FLAG_LAST_SEGMENT):
-                        eprint(f"Warning: last segment (segment_id={segment_id}) didn't have FLAG_LAST_SEGMENT set. May be missing trailing data.")
+                        self.eprint(
+                            "Warning: last segment (segment_id="
+                            f"{segment_id}) didn't have FLAG_LAST_SEGMENT "
+                            "set. May be missing trailing data.")
             yield segment
+
+    def validate_aset(self, aset):
+        for i in range(self.m):
+            if not aset.get(i):
+                self.eprint(f"Warning: found aset of correct size {self.m}, "
+                            f"but it is missing fragment_id={i}")
+                return False
+        return True
 
     def authorized_set(self, segment):
         """Return list of handles to fragments of an authorized set."""
@@ -283,10 +336,10 @@ class TaggedDecoder(Decoder):
         for tagged_frag in segment:
             aset = asets[tagged_frag.header.aset_id]
             aset[tagged_frag.header.fragment_id] = tagged_frag
-            if len(aset) == self.m and validate_aset(aset, self.m):
+            if len(aset) == self.m and self.validate_aset(aset):
                 return [tf.handle for tf in aset.values()]
-        eprint(f"Warning: unable to find complete authorized set of size {self.m}")
-        return None
+        self.throw("Warning: unable to find complete authorized set of "
+                   f"size {self.m}")
 
     def fragments(self, authorized_set):
         frag_streams = [byte_seqs.resize_seqs(self.fragment_read_size,
@@ -301,12 +354,3 @@ class TaggedDecoder(Decoder):
                 except StopIteration:
                     return
             yield chunks
-
-
-def validate_aset(aset, m):
-    ok = True
-    for i in range(m):
-        if not aset.get(i):
-            eprint(f"Warning: found aset of correct size {self.m}, but it is missing fragment_id={i}")
-            ok = False
-    return ok

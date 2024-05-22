@@ -2,7 +2,7 @@ import argparse
 import sys
 
 from triss import core
-from triss.util import eprint, FatalError
+from triss.util import ErrorMessage, eprint
 
 def cli():
     parser = argparse.ArgumentParser(
@@ -38,7 +38,6 @@ def cli():
                    help="one or more directories containing input files to "
                    "combine")
     m.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
-                   default=core.DEFAULT_FORMAT,
                    help="input file format, will guess if omitted")
     m.add_argument('-o', type=str, required=False,
                    metavar='OUT_FILE',
@@ -52,16 +51,15 @@ def cli():
     elif args.command == 'combine':
         core.do_combine(args.in_dirs, args.o, args.c)
     else:
-        raise FatalError(f"Invalid command: {args.command}")
+        raise ErrorMessage(f"Invalid command: {args.command}")
 
 
 def main():
     try:
         cli()
         return 0
-    except FatalError as e:
-        for arg in e.args:
-            eprint(arg)
+    except ErrorMessage as e:
+        eprint(e)
         return 1
 
 if __name__ == '__main__':

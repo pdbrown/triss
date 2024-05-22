@@ -1,6 +1,7 @@
 from collections import defaultdict, namedtuple
 import contextlib
 import itertools
+import io
 from pathlib import Path
 import os
 import re
@@ -9,7 +10,7 @@ import tempfile
 
 from triss.byte_seqs import resize_seqs
 from triss.codec import data_file
-from triss.util import eprint, FatalError
+from triss.util import ErrorMessage, eprint, iter_str
 
 try:
     from triss.codec import qrcode
@@ -53,13 +54,13 @@ def assert_byte_seqs_equal(bs_x, bs_y, err_msg="Byte seqs not equal!"):
 
     for (xs, ys) in zip(bs_x, bs_y):
         if xs != ys:
-            raise FatalError(err_msg)
+            raise ErrorMessage(err_msg)
     for bs in [bs_x, bs_y]:
         try:
             next(bs)
             # Ensure byte seqs have same length. Should be empty so expect
             # StopIteration.
-            raise FatalError(err_msg)
+            raise ErrorMessage(err_msg)
         except StopIteration:
             pass
 
@@ -69,12 +70,11 @@ def check_asets_combine(in_file, out_dir, m, input_format):
             f = Path(d) / "check_output"
             try:
                 do_combine(share_dirs, f, input_format)
-            except FatalError as e:
-                for arg in e.args:
-                    eprint(arg)
-                raise FatalError(
+            except ErrorMessage as e:
+                eprint(e)
+                raise ErrorMessage(
                     "Combine check failed! Unable to combine shares in " \
-                    f"in {share_dirs}.")
+                    f"{iter_str(share_dirs)}.")
             if in_file:
                 assert_byte_seqs_equal(
                     read_buffered(in_file),
@@ -100,9 +100,9 @@ def do_split(in_file, out_dir,
         if have_qrcode:
             encoder = qrcode.QREncoder(out_dir, secret_name)
         else:
-            raise FatalError(f"QRCODE encoder is not available.")
+            raise ErrorMessage(f"QRCODE encoder is not available.")
     else:
-        raise FatalError(f"Unknown output format {output_format}.")
+        raise ErrorMessage(f"Unknown output format {output_format}.")
 
     encoder.encode(read_buffered(in_file), m, n)
 
@@ -110,19 +110,10 @@ def do_split(in_file, out_dir,
         check_asets_combine(in_file, out_dir, m, output_format)
 
 
-def do_combine(dirs, out_file, input_format=None):
-    if input_format == 'DATA':
-        mk_decoders = [data_file.FileDecoder]
-    elif input_format == 'QRCODE':
-        if have_qrcode:
-            mk_decoders = [qrcode.QRDecoder]
-        else:
-            raise FatalError(f"QRCODE decoder is not available.")
-    else:
-        mk_decoders = TRY_DECODERS
-
-    for mk_decoder in TRY_DECODERS:
+def try_decode(mk_decoder, dirs, out_file):
+    try:
         decoder = mk_decoder(dirs)
+        eprint("Try decoding with", decoder.name())
         output_chunks = decoder.decode()
         n_chunks = 0
         with open_output(out_file) as f:
@@ -132,4 +123,38 @@ def do_combine(dirs, out_file, input_format=None):
                     n_chunks += 1
         if n_chunks > 0:
             return True
-    raise FatalError(f"Unable to decode data in {dirs}.")
+        else:
+            eprint("Got no output.")
+    except Exception as e:
+        eprint("Failed to decode with", e)
+    return False
+
+def do_combine(dirs, out_file, input_format=None):
+    if input_format == 'DATA':
+        mk_decoders = [data_file.FileDecoder]
+    elif input_format == 'QRCODE':
+        if have_qrcode:
+            mk_decoders = [qrcode.QRDecoder]
+        else:
+            raise ErrorMessage(f"QRCODE decoder is not available.")
+    else:
+        mk_decoders = TRY_DECODERS
+
+    print_errors = True
+    try:
+        with contextlib.redirect_stderr(io.StringIO()) as captured_err:
+            loop_msg = ""
+            for mk_decoder in mk_decoders:
+                if loop_msg:
+                    eprint(loop_msg)
+                if try_decode(mk_decoder, dirs, out_file):
+                    print_errors = False
+                    return True
+                loop_msg = "Trying next decoder."
+    finally:
+        if print_errors:
+            err = captured_err.getvalue()
+            if err:
+                eprint(err, end='')
+
+    raise ErrorMessage(f"Unable to decode data in {iter_str(dirs)}.")
