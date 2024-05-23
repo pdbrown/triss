@@ -1,6 +1,6 @@
 [project]
 name = "triss"
-version = "1.0.0"
+version = "1.0"
 authors = [{name="Philip Brown", email="pdbrown.git@gmail.com"}]
 description = "Trivial secret sharing with support for M-of-N splits."
 readme = "README.md"
@@ -22,7 +22,7 @@ test = [
 
 
 [project.scripts]
-cli-name = "triss.cli:main"
+triss = "triss.cli:main"
 
 [project.urls]
 "Homepage" = "https://github.com/pdbrown/triss"

@@ -120,8 +120,8 @@ def m_of_n_access_structure(m, n):
     share 0:  A1  B1  C1
     share 1:  A2          D1  E1
     share 2:      B2      D2      F1
-    share 3:          C2      E2  F2"""
-
+    share 3:          C2      E2  F2
+    """
     aset_ids = range(num_asets(m, n))
     authorized_sets = [{'aset_id': i} for i in aset_ids]
     share_ids = range(n)
@@ -139,7 +139,8 @@ def num_asets(m, n):
 
     which is (N choose M). An authorized set is a subset of shares of size M,
     and there are a total of N shares, and (N choose M) counts the number of
-    such subsets."""
+    such subsets.
+    """
     return math.comb(n, m)
 
 

@@ -1,3 +1,4 @@
+build/
 dist/
 .hypothesis/
 __pycache__/
