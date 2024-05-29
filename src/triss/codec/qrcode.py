@@ -18,41 +18,61 @@ mimetypes.init()
 
 # From https://www.qrcode.com/en/about/version.html
 # Set QR_SIZE_MAX_BYTES to be size of largest QR code with highest error
-# correction enabled: Version 40, ECC level "H"
+# correction enabled: Version 40, ECC level "High"
 QR_SIZE_MAX_BYTES = 1273
-# ERROR_CORRECT_H is maximum level ("high") of error correction: up to 30% of
-# lost data bytes can be recovered.
-QR_ECC_LEVEL = qrcode.constants.ERROR_CORRECT_H
 QR_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - Header.HEADER_SIZE_BYTES
 QR_BOX_SIZE = 10
-QR_BORDER = 5
+QR_BORDER = 20
 MARGIN = QR_BOX_SIZE * QR_BORDER
 
 TRY_FONTS = ["Helvetica.ttf", "DejaVuSans.ttf", "Arial.ttf"]
 
-def qr_image(data):
-    qr = qrcode.QRCode(
-        # int in range [1,40] to determine size, set to None and use fit= to
-        # determine automatically.
-        version=None,
-        error_correction=QR_ECC_LEVEL,
-        box_size=QR_BOX_SIZE,
-        border=QR_BORDER
-    )
-    qrdata = qrcode.util.QRData(data,
-                                # Don't try to guess data encoding.
-                                mode=qrcode.util.MODE_8BIT_BYTE,
-                                # Never try to encode data.
-                                check_data=False)
-    qr.add_data(qrdata)
-    qr.make(fit=True)
-    img = qr.make_image()
+def do_qrencode(data, path):
+    # Invoke qrencode with args:
+    # -o PATH
+    #    Write png output to PATH
+    # --level H
+    #    Use 'H'igh error correction level (avaliable levels from lowest to
+    #    highest: LMQH)
+    # --8bit
+    #    Use 8bit binary encoding, i.e. don't modify input in any way.
+    # --size 10
+    #    Make each element 5x5 pixels large (default is 3x3).
+    # --margin 10
+    #    Use 10 px margin (default is 4).
+    # --symversion auto
+    #    Automatically choose qrcode data density depending on amount of DATA.
+    #    Versions range between 1-40, version 40 is largest/densest, and holds
+    #    1273 bytes of data in High error correction mode.
+    proc = subprocess.run(
+        ["qrencode", "-o", str(path), "--level", "H", "--8bit",
+         "--size", str(QR_BOX_SIZE), "--margin", str(QR_BORDER),
+         "--symversion", "auto"],
+        input=data,
+        capture_output=True)
+
+    if proc.returncode < 0:
+        # Then terminated by signal
+        eprint(f"Warning: qrencode terminated by signal {proc.returncode} "
+               f"while writing qrcode to {path}.")
+        return False
+    if proc.returncode != 0:
+        eprint(proc.stdout.decode())
+        eprint(proc.stderr.decode())
+        eprint(f"Warning: qrencode failed with error writing to {path}.")
+        return False
+    return True
+
+def load_image(path):
+    # Read image data into img, then close img_path keeping img in memory.
+    with Image.open(path) as img:
+        img.load()
     return img
 
 def merge_img_y(im_top, im_bottom):
     w = max(im_top.size[0], im_bottom.size[0])
     h = im_top.size[1] + im_bottom.size[1]
-    im = Image.new('RGB', (w, h), 'white')
+    im = Image.new('RGBA', (w, h), 'white')
     im.paste(im_top)
     im.paste(im_bottom, (0, im_top.size[1]))
     return im
@@ -82,9 +102,14 @@ def add_caption(img, title, subtitle=None):
 
     return merge_img_y(capt, img)
 
-def qr_image_with_caption(data, caption, subtitle=None):
-    img = qr_image(data)
-    return add_caption(img, caption, subtitle)
+def qr_encode(data, path, *, title=None, subtitle=None):
+    if not do_qrencode(data, path):
+        return None
+    img = load_image(path)
+    if title:
+        img = add_caption(img, title, subtitle)
+    img.save(path)
+    return img
 
 
 class QREncoder(FileSegmentEncoder):
@@ -102,25 +127,22 @@ class QREncoder(FileSegmentEncoder):
         with path.open('rb') as f:
             data = f.read()
 
-        img = qr_image(data)
-
+        img_path = path.with_suffix(".png")
         subtitle = f"Share {share_id} - " \
             f"Part {part_number}/{self.n_parts}\n" \
             f"Recover secret with {self.m} of {self.n} shares.\n" \
             f"Require all parts of each share.\n" \
             "--- Header Details ---\n" \
             f"Version: {header.version}\n" \
-            f"Segment: {header.segment_id}\n" \
+            f"Segment: {header.segment_id + 1}/{header.segment_count}\n" \
             f"Authorized Set: {header.aset_id}\n" \
-            f"Fragment: {header.fragment_id}"
+            f"Fragment: {header.fragment_id + 1}/{header.fragment_count}"
 
-        img = add_caption(img, self.secret_name, subtitle)
-        img_path = path.with_suffix(".png")
-        img.save(img_path)
+        qr_encode(data, img_path, title=self.secret_name, subtitle=subtitle)
         path.unlink()
 
 
-def decode_qr_code(path):
+def qr_decode(path):
     """
     Decode only QR code in image at path PATH, return byte array.
     """
@@ -193,7 +215,7 @@ class QRDecoder(FileDecoder):
 
 
     def read_file(self, path, *, seek=0):
-        data = decode_qr_code(path)
+        data = qr_decode(path)
         yield(data[seek:])
 
     def find_files(self):

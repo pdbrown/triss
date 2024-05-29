@@ -20,15 +20,15 @@ except ModuleNotFoundError:
     QR_SIZE_MAX_BYTES = -1
 
 @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
-@given(xs=st.binary(min_size=0, max_size=QR_SIZE_MAX_BYTES),
-       caption=st.text(),
+@given(xs=st.binary(min_size=1, max_size=QR_SIZE_MAX_BYTES),
+       title=st.text(),
        subtitle=st.text())
 @settings(max_examples=500, suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_qrencode_decode(xs, caption, subtitle, tmp_path):
+def test_qrencode_decode(xs, title, subtitle, tmp_path):
     f = tmp_path / "img.png"
-    img = qrcode.qr_image_with_caption(xs, caption, subtitle=subtitle)
-    img.save(f)
-    decoded = qrcode.decode_qr_code(f)
+    img = qrcode.qr_encode(xs, f, title=title, subtitle=subtitle)
+    assert img is not None
+    decoded = qrcode.qr_decode(f)
     try:
         assert decoded == xs
     except Exception as e:

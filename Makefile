@@ -31,7 +31,7 @@ dev: | assert-venv
 	$(PIP) install --editable '.[qrcode,test]'
 
 test: | assert-venv
-	$(PYTEST) -v tests/main tests/generative
+	$(PYTEST) -v -W error::UserWarning tests/main tests/generative
 
 stress: | assert-venv
 	$(PYTEST) -vs tests/stress

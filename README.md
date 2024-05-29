@@ -47,24 +47,34 @@ of the $\binom{N}{M}$ subsets.
 ## Installation
 
 ### Prerequisites
-There are no prerequisites for `DATA` file mode, but `triss` uses the external
-`zbarimg` program to decode secrets in `QRCODE` format. It must be available on
-the `PATH` and be at least version `0.23.1` (released 2020-04-20), which has
-support for decoding binary data from QR codes.
+There are no prerequisites for `DATA` file mode, but the `QRCODE` mode
+depends on [`qrencode`](https://github.com/fukuchi/libqrencode) and
+[`zbarimg`](https://github.com/mchehab/zbar).
+
+```
+| Dependency  | Minimum Version |   Released |
+|-------------+-----------------+------------|
+| libqrencode |           4.1.1 | 2020-09-28 |
+| zbarimg     |          0.23.1 | 2020-04-20 |
+```
+
+Note the minimum version of `zbarimg` is a hard requirement, because support for
+binary data was added in `0.23.1`, and that older versions of `qrencode` may
+work, but haven't been tested.
 
 #### Debian / Ubuntu
 ```bash
-sudo apt install zbar-tools
+sudo apt install qrencode zbar-tools
 ```
 
 #### Redhat / Fedora
 ```bash
-sudo dnf install zbar
+sudo dnf install qrencode zbar
 ```
 
 #### macOS
 ```bash
-brew install zbar
+brew install qrencode zbar
 ```
 
 See also

@@ -51,7 +51,7 @@ EOF
 
 FROM base as app
 
-RUN apt-get install -y zbar-tools
+RUN apt-get install -y qrencode zbar-tools
 
 COPY --from=builder --link /venv /venv
 USER user
