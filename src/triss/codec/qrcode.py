@@ -10,7 +10,7 @@ import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
 from triss import byte_seqs
-from triss.codec import Header, TaggedDecoder
+from triss.codec import FragmentHeader, TaggedDecoder
 from triss.codec.data_file import FileSegmentEncoder, FileDecoder
 from triss.util import ErrorMessage, eprint
 
@@ -20,7 +20,7 @@ mimetypes.init()
 # Set QR_SIZE_MAX_BYTES to be size of largest QR code with highest error
 # correction enabled: Version 40, ECC level "High"
 QR_SIZE_MAX_BYTES = 1273
-QR_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - Header.HEADER_SIZE_BYTES
+QR_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - FragmentHeader.size_bytes()
 QR_BOX_SIZE = 10
 QR_BORDER = 20
 MARGIN = QR_BOX_SIZE * QR_BORDER

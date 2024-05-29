@@ -7,7 +7,7 @@ import itertools
 from pathlib import Path
 
 from triss.byte_seqs import resize_seqs
-from triss.codec import Header
+from triss.codec import FragmentHeader
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder
 try:
@@ -17,22 +17,28 @@ except ModuleNotFoundError:
     have_qrcode = False
 
 
-def test_header():
-    h = Header.create(segment_id=1, aset_id=2, fragment_id=3)
-    h.set_flag(Header.FLAG_LAST_FRAGMENT)
-    assert h.segment_id == 1
-    assert h.aset_id == 2
-    assert h.fragment_id == 3
-    assert h.test_flag(Header.FLAG_LAST_FRAGMENT)
+def test_fragment_header():
+    h = FragmentHeader.create(aset_id=1,
+                              segment_id=2, segment_count=3,
+                              fragment_id=4, fragment_count=5)
+    assert h.aset_id == 1
+    assert h.segment_id == 2
+    assert h.segment_count == 3
+    assert h.fragment_id == 4
+    assert h.fragment_count == 5
+    assert h.version == FragmentHeader.VERSION
+    assert h.info['tag'].to_bytes(length=5, byteorder='big') == b'triss'
 
     h_bytes = h.to_bytes()
 
-    parsed = Header.parse(h_bytes)
-    assert parsed.segment_id == h.segment_id
+    parsed = FragmentHeader.parse(h_bytes)
     assert parsed.aset_id == h.aset_id
-    assert parsed.fragment_id == h.fragment_id
-    assert parsed.test_flag(Header.FLAG_LAST_FRAGMENT)
+    assert parsed.segment_id == h.segment_id
+    assert parsed.segment_count == h.segment_count
+    assert parsed.segment_id == h.segment_id
+    assert parsed.fragment_count == h.fragment_count
     assert parsed.version == h.version
+    assert parsed.info['tag'] == h.info['tag']
 
 def test_memory_codec():
     codec = MemoryCodec()
