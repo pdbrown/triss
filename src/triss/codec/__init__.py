@@ -217,7 +217,6 @@ class MacHeader(Header):
 class Encoder:
     # Implementor's Interface
     def configure(self, m, n, mac_size_bits):
-        m = m or n
         if m < 2 or n < 2:
             raise ErrorMessage("Must split into at least 2 shares.")
         if m > n:
@@ -258,6 +257,8 @@ class Encoder:
         authorized_sets = crypto.m_of_n_access_structure(m, n)
         n_segments = self.encode_segments(
             secret_data_segments, m, n, authorized_sets)
+        if n_segments == 0:
+            return
         self.summary(n_segments)
         self.write_hmacs()
         for segment_id in range(n_segments):
