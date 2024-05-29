@@ -1,15 +1,17 @@
 PYTHON := python
-PYTEST := $(PYTHON) -m pytest
 PIP := pip
+TESTS := .
+DOCKER := docker
+
 VERSION := $(shell awk -F\" '/^version/ { print $$2 }' pyproject.toml)
 SRC := $(shell find src)
-TESTS := $(shell find tests)
-DOCKER := docker
+TEST_SRC := $(shell find tests)
+PYTEST := $(PYTHON) -m pytest
 
 assert-venv:
 	@test $${VIRTUAL_ENV?Is unset. Must be in a venv.}
 
-dist/triss-$(VERSION).tar.gz: pyproject.toml $(SRC) $(TESTS) | assert-venv
+dist/triss-$(VERSION).tar.gz: pyproject.toml $(SRC) $(TEST_SRC) | assert-venv
 	$(PIP) install '.[qrcode,test]'
 	$(PIP) install --upgrade build
 	$(MAKE) test
@@ -31,7 +33,7 @@ dev: | assert-venv
 	$(PIP) install --editable '.[qrcode,test]'
 
 test: | assert-venv
-	$(PYTEST) -v -W error::UserWarning tests/main tests/generative
+	$(PYTEST) -v -k "$(TESTS)" -W error::UserWarning tests/main tests/generative
 
 stress: | assert-venv
 	$(PYTEST) -vs tests/stress
