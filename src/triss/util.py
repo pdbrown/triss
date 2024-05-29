@@ -12,3 +12,6 @@ def eprint(*args, **kwargs):
 
 def iter_str(xs):
     return ", ".join(str(x) for x in xs)
+
+def div_up(x, quot):
+    return (x + quot - 1) // quot

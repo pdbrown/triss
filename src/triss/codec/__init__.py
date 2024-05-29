@@ -6,39 +6,72 @@ from triss import byte_seqs
 from triss import crypto
 from triss.util import ErrorMessage, eprint
 
+
+class Field:
+    def __init__(self, name, size):
+        self.name = name
+        self.size = size
+    def __repr__(self):
+        return f"{type(self).__name__}({self.name}, {self.size})"
+
+def fields_by_name(*fields):
+    return {f.name: f for f in fields}
+
+class IntField(Field):
+    default = 0
+    def parse(self, data):
+        return int.from_bytes(data[0:self.size], byteorder='big', signed=False)
+
+    def generate(self, x):
+        return x.to_bytes(length=self.size, byteorder='big', signed=False)
+
+class BytesField(Field):
+    default = b''
+    def parse(self, data):
+        if len(data) < self.size:
+            raise ValueError(
+                f"Can't parse {self.name} field, need {self.size} bytes but "
+                f"only got {len(data)}.")
+        return data[0:self.size]
+
+    def generate(self, data):
+        return data
+
+class StrField(BytesField):
+    default = ""
+    def parse(self, data):
+        return super().parse(data).decode("utf-8")
+
+    def generate(self, s):
+        data = s.encode("utf-8")
+        if len(data) > self.size:
+            raise ValueError(
+                f'Got too many bytes encoding utf-8 string "{s}" for {self}.')
+        zpadding = b'\0' * (self.size - len(data))
+        return data + zpadding
+
 class Header:
-    TAG = int.from_bytes(b'triss')
-
-    @classmethod
-    def fields(cls):
-        return cls.FIELDS.keys()
-
-    @classmethod
-    def length(cls, k):
-        return cls.FIELDS[k]
-
-    @classmethod
-    def parse_field(cls, k, data):
-        return int.from_bytes(data, byteorder='big', signed=False)
-
     @classmethod
     def size_bytes(cls):
         # Length of all fields + 2 bytes for checksum.
-        return sum(cls.length(k) for k in cls.fields()) + 2
+        return sum(field.size for field in cls.FIELDS.values()) + 2
 
     def __init__(self, info):
-        """Construct Header given INFO dictionary.
-
-        INFO holds all header data, and is keyed by strings in self.fields()
-        array.
         """
-        info['tag'] = self.TAG
+        Construct Header given INFO dictionary.
+
+        INFO holds header data as typed objects (not just byte arrays), and is
+        keyed by strings in the self.fields() array. Retrieve header bytes with
+        get_bytes or to_bytes.
+        """
+        self.info = info
+        info['tag'] = self.FIELDS['tag'].parse(self.TAG)
         if not 'version' in info:
             raise ValueError("Header info must contain 'version'")
-        self.info = info
-        for k in self.fields():
+        for k in self.FIELDS:
             # Initialize to zero if undefined
-            self.info[k] = self.info.get(k) or 0
+            if k not in info:
+                info[k] = self.FIELDS[k].default
             # Assert values in range. get_bytes throws an OverflowError if
             # value is to big to convert.
             self.get_bytes(k)
@@ -46,8 +79,7 @@ class Header:
     def get_bytes(self, k):
         """Return value of field K as byte array."""
         v = self.info[k]
-        l = self.length(k)
-        return v.to_bytes(length=l, byteorder='big', signed=False)
+        return self.FIELDS[k].generate(v)
 
     @property
     def version(self):
@@ -56,7 +88,7 @@ class Header:
     def to_bytes(self):
         """Return header as byte array."""
         data = bytes(itertools.chain.from_iterable(
-            [self.get_bytes(f) for (f) in self.fields()]))
+            [self.get_bytes(f) for f in self.FIELDS]))
         return data + crypto.fletchers_checksum_16(data)
 
     @classmethod
@@ -66,7 +98,7 @@ class Header:
         return cls(info)
 
     @classmethod
-    def parse(cls, data):
+    def from_bytes(cls, data):
         """Parse byte array DATA and return instance of Header."""
         size = cls.size_bytes()
         if len(data) < size:
@@ -79,26 +111,51 @@ class Header:
             raise ValueError("Refusing to parse header with bad checksum.")
         info = {}
         i = 0
-        for k in cls.fields():
-            l = cls.length(k)
-            info[k] = cls.parse_field(k, payload[i:i+l])
-            i += l
+        for k, field in cls.FIELDS.items():
+            info[k] = field.parse(payload[i:i+field.size])
+            i += field.size
         if info['tag'] != cls.TAG:
-            raise ValueError("Header tag is not 'triss': is this a triss file?")
+            raise ValueError(
+                f"Header tag is not {cls.TAG}: is this a triss file?")
         if info['version'] != cls.VERSION:
-            raise ValueError(f"Incompatible header version, got {info['version']}' "
-                             f"but expected {cls.VERSION}")
+            raise ValueError(
+                f"Incompatible header version, got {info['version']}' but "
+                f"expected {cls.VERSION}")
         return cls.create(**info)
 
+    @staticmethod
+    def parse(byte_stream):
+        """
+        Parse a Header from BYTE_STREAM, an iterable of byte sequences.
+
+        Return tuple of header and rest of BYTE_STREAM.
+        """
+        byte_stream = iter(byte_stream)
+        for header_cls in Header.__subclasses__():
+            try:
+                chunk, byte_stream = byte_seqs.take_and_drop(
+                    header_cls.size_bytes(), byte_stream)
+            except StopIteration:
+                return (None, None)
+            try:
+                return (header_cls.from_bytes(chunk), byte_stream)
+            except ValueError as e:
+                # Put chunk back onto byte seqs and try again
+                byte_stream = itertools.chain([chunk], byte_stream)
+        return (None, byte_stream)
+
+
 class FragmentHeader(Header):
+    TAG = b'trissfrag'
     VERSION = 1
-    FIELDS = {'tag': 5,
-              'version': 1,
-              'aset_id': 4,
-              'segment_id': 4,
-              'segment_count': 4,
-              'fragment_id': 2,
-              'fragment_count': 2}
+    FIELDS = fields_by_name(
+        BytesField("tag", 9),
+        IntField("version", 1),
+        IntField("aset_id", 4),
+        IntField("segment_id", 4),
+        IntField("segment_count", 4),
+        IntField("fragment_id", 4),
+        IntField("fragment_count", 4))
 
     @property
     def aset_id(self):
@@ -125,36 +182,29 @@ class FragmentHeader(Header):
         return self.info['fragment_count']
 
 
-class MacType(IntEnum):
-    KEY = 1
-    HMAC = 2
-
 class MacHeader(Header):
-    TAG = int.from_bytes(b'trissmac')
+    TAG = b'trissmac'
     VERSION = 1
-    FIELDS = {'tag': 8,
-              'version': 1,
-              'type': 1,
-              'share_id': 4,
-              'size': 4,
-              'algorithm': 14}
-
-    @classmethod
-    def parse_field(cls, k, data):
-        if k == 'type':
-            return MacType(super().parse_field(k, data))
-        elif k == 'algorithm':
-            return data.decode("utf-8")
-        else:
-            return super().parse_field(k, data)
+    FIELDS = fields_by_name(
+        BytesField("tag", 8),
+        IntField("version", 2),
+        IntField("share_count", 4),
+        IntField("part_id", 4),
+        IntField("part_count", 4),
+        IntField("size", 4),
+        StrField("algorithm", 20))
 
     @property
-    def type(self):
-        return self.info['type']
+    def share_count(self):
+        return self.info['share_count']
 
     @property
-    def share_id(self):
-        return self.info['share_id']
+    def part_id(self):
+        return self.info['part_id']
+
+    @property
+    def part_count(self):
+        return self.info['part_count']
 
     @property
     def size(self):
@@ -164,19 +214,21 @@ class MacHeader(Header):
     def algorithm(self):
         return self.info['algorithm']
 
-
-
 class Encoder:
     # Implementor's Interface
-    def configure(self, m, n):
+    def configure(self, m, n, mac_size_bits):
         m = m or n
         if m < 2 or n < 2:
             raise ErrorMessage("Must split into at least 2 shares.")
         if m > n:
             raise ErrorMessage("M cannot be larger than N for M-of-N split: "
-                             f"got M={m} of N={n}")
+                               f"got M={m} of N={n}")
         self.m = m
         self.n = n
+        self.mac_size_bits = mac_size_bits
+        self.macs = [crypto.new_hmac(size_bits=mac_size_bits)
+                     for share_id
+                     in range(self.n)]
 
     def encode_segments(self, secret_data_segments, m, n, authorized_sets):
         raise NotImplementedError()
@@ -184,23 +236,30 @@ class Encoder:
     def summary(self, n_segments):
         self.n_segments = n_segments
         self.n_asets = crypto.num_asets(self.m, self.n)
-        self.n_fragments = crypto.num_fragments_per_share(self.m, self.n)
-        self.n_parts = self.n_segments * self.n_fragments
+        self.fragments_per_share = crypto.num_fragments_per_share(self.m, self.n)
+        self.n_fragments = self.n_segments * self.fragments_per_share
+
+    def write_hmacs(self):
+        pass
 
     def finalize(self, share_id, header):
         pass
 
+    # Helpers
+    def hmac_byte_stream(self, share_id):
+        yield self.macs[share_id].key
+        for mac_id in range(self.n):
+            yield self.macs[mac_id].hmac.digest()
+
     # Entrypoint
-    def encode(self, secret_data_segments, m, n):
-        self.configure(m, n)
-
+    def encode(self, secret_data_segments, m, n, *,
+               mac_size_bits=crypto.DEFAULT_MAC_SIZE_BITS):
+        self.configure(m, n, mac_size_bits)
         authorized_sets = crypto.m_of_n_access_structure(m, n)
-
         n_segments = self.encode_segments(
             secret_data_segments, m, n, authorized_sets)
-
         self.summary(n_segments)
-
+        self.write_hmacs()
         for segment_id in range(n_segments):
             for aset in authorized_sets:
                 for fragment_id, share_id in enumerate(aset['share_ids']):
@@ -232,6 +291,7 @@ class MappingEncoder(Encoder):
                                                    fragment_id=fragment_id,
                                                    fragment_count=m)
                     self.write(share_id, header, fragment)
+                    self.macs[share_id].hmac.update(fragment)
         return n_segments
 
 
@@ -240,9 +300,14 @@ class AppendingEncoder(Encoder):
     def __init__(self, mapping_encoder):
         self.mapping_encoder = mapping_encoder
 
-    def configure(self, m, n):
-        super().configure(m, n)
-        self.mapping_encoder.configure(m, n)
+    def configure(self, m, n, mac_size_bits):
+        super().configure(m, n, mac_size_bits)
+        self.mapping_encoder.configure(m, n, mac_size_bits)
+        # Make sure we use the same macs for all segments. Ignore and gc the
+        # macs initialized in super().configure. This class' encode_segments
+        # implementation calls mapping_encoder.write once, which will update
+        # mapping_encoder.macs, then updates self.macs 0 or more times.
+        self.macs = self.mapping_encoder.macs
 
     def append(self, share_id, aset_id, fragment_id, fragment):
         raise NotImplementedError()
@@ -264,11 +329,15 @@ class AppendingEncoder(Encoder):
                         zip(aset['share_ids'],
                             crypto.split_secret(secret_segment, m))):
                     self.append(share_id, aset['aset_id'], fragment_id, fragment)
+                    self.macs[share_id].hmac.update(fragment)
         # All data is appended onto 1 segment
         return 1
 
     def summary(self, n_segments):
         self.mapping_encoder.summary(n_segments)
+
+    def write_hmacs(self):
+        self.mapping_encoder.write_hmacs()
 
     def finalize(self, share_id, header):
         self.mapping_encoder.finalize(share_id, header)
@@ -298,6 +367,9 @@ class Decoder:
     def fragments(self, authorized_set):
         return [authorized_set]
 
+    def macs(self):
+        return []
+
     # Entrypoint
     def decode(self):
         self.load()
@@ -305,6 +377,12 @@ class Decoder:
             authorized_set = self.authorized_set(segment)
             for chunk_fragments in self.fragments(authorized_set):
                 yield crypto.combine_fragments(chunk_fragments)
+        # for mac in self.macs():
+        #     decode_digest = mac.hmac.digest()
+        #     if not crypto.digests_equal(decode_digest, mac.digest):
+        #         self.throw(
+        #             "DANGER: Digests don't match, can't prove reconstructed "
+        #             "secret is the same as the original.")
 
 
 TaggedFragment = namedtuple("TaggedFragment", ["header", "handle"])
@@ -362,27 +440,27 @@ class TaggedDecoder(Decoder):
         self.segment_count = 0
         self.fragment_count = 0
         for handle, frag_stream in self.fragment_streams():
-            try:
-                chunk, frag_stream = byte_seqs.take_and_drop(
-                    FragmentHeader.size_bytes(), frag_stream)
-            except StopIteration:
-                self.eprint("Warning: No data in file, can't parse header: "
-                            f"{handle}. Skipping.")
+            header, frag_stream = Header.parse(frag_stream)
+            if header is None:
+                if frag_stream is None:
+                    self.eprint("Warning: No data in file, can't parse header: "
+                                f"{handle}. Skipping.")
+                else:
+                    self.eprint(f"Warning: Failed to parse header: {handle}. "
+                                "Skipping.")
                 continue
-            try:
-                header = FragmentHeader.parse(chunk)
-            except ValueError as e:
-                self.eprint(e)
-                self.eprint(f"Warning: Failed to parse header: {handle}. "
-                            "Skipping.")
-                continue
-
-            self.ensure_segment_count(header)
-            self.ensure_fragment_count(header)
-
-            # eprint(f"parsed header:", header.segment_id, header.aset_id, header.fragment_id)
-            self.by_segment[header.segment_id].append(
-                TaggedFragment(header, handle))
+            if isinstance(header, FragmentHeader):
+                self.ensure_segment_count(header)
+                self.ensure_fragment_count(header)
+                # eprint(f"parsed header:", header.segment_id, header.aset_id, header.fragment_id)
+                self.by_segment[header.segment_id].append(
+                    TaggedFragment(header, handle))
+            elif isinstance(header, MacHeader):
+                print("GOT MAC HEADER:", header)
+            else:
+                self.eprint(
+                    f"Warning: Unknown header type {type(header).__name__} in "
+                    f"{handle}. Skipping.")
 
         if not self.by_segment:
             self.throw("Warning: No input found.")
@@ -425,11 +503,18 @@ class TaggedDecoder(Decoder):
                 self.fragment_data_stream(tagged_frag.handle))
             for tagged_frag
             in authorized_set]
+        hmacs = range(999999)
+        # hmacs = [
+        #      self_get.macs[tagged_frag.header.share_id].hmac
+        #      for tagged_frag
+        #      in authorized_set]
         while True:
             chunks = []
-            for stream in frag_streams:
+            for stream, hmac in zip(frag_streams, hmacs):
                 try:
-                    chunks.append(next(stream))
+                    chunk = next(stream)
+                    chunks.append(chunk)
+                    # hmac.update(chunk)
                 except StopIteration:
                     return
             yield chunks

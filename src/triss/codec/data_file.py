@@ -7,13 +7,13 @@ import math
 import os
 from pathlib import Path
 
-from triss.codec import FragmentHeader, MappingEncoder, AppendingEncoder, \
-    TaggedDecoder
+from triss.codec import FragmentHeader, MacHeader, \
+    MappingEncoder, AppendingEncoder, TaggedDecoder
 from triss.util import ErrorMessage, eprint
 
 def set_segment_count(path, segment_count):
     with path.open(mode='rb+') as f:
-        header = FragmentHeader.parse(f.read(FragmentHeader.size_bytes()))
+        header = FragmentHeader.from_bytes(f.read(FragmentHeader.size_bytes()))
         header.segment_count = segment_count
         f.seek(0)
         f.write(header.to_bytes())
@@ -22,11 +22,14 @@ def set_segment_count(path, segment_count):
 class FileSegmentEncoder(MappingEncoder):
 
     def __init__(self, out_dir):
-        self.out_dir = out_dir
+        self.out_dir = Path(out_dir)
+
+    def share_dir(self, share_id):
+        return self.out_dir / f"share-{share_id}"
 
     def file_path(self, share_id, header):
         name = f"{header.segment_id}.{header.aset_id}.{header.fragment_id}.dat"
-        return Path(self.out_dir) / f"share-{share_id}" / name
+        return self.share_dir(share_id) / name
 
     def write(self, share_id, header, fragment):
         dest = self.file_path(share_id, header)
@@ -37,23 +40,39 @@ class FileSegmentEncoder(MappingEncoder):
 
     def summary(self, n_segments):
         super().summary(n_segments)
-        if n_segments > 0:
-            # Number of digits needed to print 1-based part number ordinals.
-            self.part_num_width = int(math.log10(self.n_parts)) + 1
-            self.part_numbers = defaultdict(int)
+        # Add one extra part to hold hmac data
+        self.n_parts = self.n_fragments + 1
+        # Number of digits needed to print 1-based part number ordinals.
+        self.part_num_width = int(math.log10(self.n_parts)) + 1
+        self.part_numbers = defaultdict(int)
+
+    def next_part_num_name(self, share_id):
+        self.part_numbers[share_id] += 1
+        n = self.part_numbers[share_id]
+        # f-string: f"{3:05}" pads 3 with leading zeros to width 5: "00003"
+        nf = f"{n:0{self.part_num_width}}"
+        return (n, f"share-{share_id}_part-{nf}_of_{self.n_parts}.dat")
+
+    def write_hmacs(self):
+        for share_id in range(self.n):
+            _, name = self.next_part_num_name(share_id)
+            path = self.share_dir(share_id) / name
+            with path.open(mode='wb') as f:
+                f.write(MacHeader.create(
+                    share_count=self.n,
+                    part_id=0,
+                    part_count=1,
+                    size=self.macs[0].size,
+                    algorithm=self.macs[0].algo).to_bytes())
+                for chunk in self.hmac_byte_stream(share_id):
+                    f.write(chunk)
 
     def finalize(self, share_id, header):
         # eprint(f"finalize: seg {segment_id}, aset: {aset_id}, share: {share_id}, frag: {fragment_id}")
         path = self.file_path(share_id, header)
         set_segment_count(path, self.n_segments)
-
-        self.part_numbers[share_id] += 1
-        part_number = self.part_numbers[share_id]
-        # f-string: f"{3:05}" pads 3 with leading zeros to width 5: "00003"
-        new_name = f"share-{share_id}_part-" \
-                   f"{part_number:0{self.part_num_width}}" \
-                   f"_of_{self.n_parts}.dat"
-        new_path = path.parent / new_name
+        part_number, part_name = self.next_part_num_name(share_id)
+        new_path = path.parent / part_name
         os.replace(path, new_path)
         # eprint(f"rename: {path} -> {new_path}")
         self.post_process(share_id, header, part_number, new_path)
@@ -87,7 +106,7 @@ class FileDecoder(TaggedDecoder):
 
     def __init__(self, in_dirs, *, file_extension="dat", **opts):
         super().__init__(**opts)
-        self.in_dirs = in_dirs
+        self.in_dirs = list(in_dirs)
         self.file_extension = file_extension
 
     def read_file(self, path, *, seek=0):

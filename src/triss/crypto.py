@@ -1,8 +1,10 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-import math
+from collections import namedtuple
 import itertools
+import hmac
+import math
 import secrets
 
 from triss.util import ErrorMessage
@@ -174,3 +176,28 @@ def num_fragments_per_share(m, n):
     share 4:          C3      E3  F3      H4 I3 J3
     """
     return math.comb(n - 1, m - 1)
+
+
+KeyedHmac = namedtuple(
+    "KeyedHmac", [
+        "algo",
+        "size",
+        "key",
+        "hmac"
+    ])
+
+DEFAULT_MAC_SIZE_BITS = 384
+
+def new_hmac(size_bits=DEFAULT_MAC_SIZE_BITS):
+    """
+    Return new KeyedHmac of SIZE_BITS, the size in bits
+
+    of both the secret key and the digest.
+    """
+    if size_bits not in [256, 384, 512]:
+        raise ValueError(f"Invalid size {size_bits}.")
+    algo = f"sha{size_bits}"
+    key = secrets.token_bytes(size_bits // 8)
+    return KeyedHmac(algo, size_bits, key, hmac.new(key, digestmod=algo))
+
+digests_equal = hmac.compare_digest

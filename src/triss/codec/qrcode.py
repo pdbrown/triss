@@ -1,6 +1,8 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
+from collections import defaultdict
+import math
 import mimetypes
 from pathlib import Path
 import re
@@ -9,10 +11,10 @@ import subprocess
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
-from triss import byte_seqs
-from triss.codec import FragmentHeader, TaggedDecoder
+from triss import byte_seqs, crypto
+from triss.codec import FragmentHeader, MacHeader, TaggedDecoder
 from triss.codec.data_file import FileSegmentEncoder, FileDecoder
-from triss.util import ErrorMessage, eprint
+from triss.util import ErrorMessage, eprint, div_up
 
 mimetypes.init()
 
@@ -21,8 +23,9 @@ mimetypes.init()
 # correction enabled: Version 40, ECC level "High"
 QR_SIZE_MAX_BYTES = 1273
 QR_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - FragmentHeader.size_bytes()
+QR_MAC_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - MacHeader.size_bytes()
 QR_BOX_SIZE = 10
-QR_BORDER = 20
+QR_BORDER = 10
 MARGIN = QR_BOX_SIZE * QR_BORDER
 
 TRY_FONTS = ["Helvetica.ttf", "DejaVuSans.ttf", "Arial.ttf"]
@@ -111,17 +114,53 @@ def qr_encode(data, path, *, title=None, subtitle=None):
     img.save(path)
     return img
 
-
 class QREncoder(FileSegmentEncoder):
 
     def __init__(self, out_dir, secret_name):
         super().__init__(out_dir)
         self.secret_name = secret_name
+        ensure_prog(['qrencode', '--version'], "to encode QRCODEs")
 
-    def encode(self, secret_data_segments, m, n):
+    def encode(self, secret_data_segments, m, n,
+               mac_size_bits=crypto.DEFAULT_MAC_SIZE_BITS):
         secret_data_segments = byte_seqs.resize_seqs(QR_DATA_SIZE_BYTES,
                                                      secret_data_segments)
-        super().encode(secret_data_segments, m, n)
+        super().encode(secret_data_segments, m, n, mac_size_bits=mac_size_bits)
+
+    def summary(self, n_segments):
+        super().summary(n_segments)
+        # Reserve space for MACs: 1 per share + 1 key for the current share
+        hmac_data_size_bytes = (self.n + 1) * self.mac_size_bits // 8
+        self.hmac_part_count = div_up(hmac_data_size_bytes,
+                                      QR_MAC_DATA_SIZE_BYTES)
+        self.n_parts = self.n_fragments + self.hmac_part_count
+        # Number of digits needed to print 1-based part number ordinals.
+        self.part_num_width = int(math.log10(self.n_parts)) + 1
+        self.part_numbers = defaultdict(int)
+
+    def write_hmacs(self):
+        for share_id in range(self.n):
+            hmac_bs = byte_seqs.resize_seqs(QR_MAC_DATA_SIZE_BYTES,
+                                            self.hmac_byte_stream(share_id))
+            for part_id, hmac_chunk in enumerate(hmac_bs):
+                part_num, name = self.next_part_num_name(share_id)
+                path = (self.share_dir(share_id) / name).with_suffix(".png")
+                header = MacHeader.create(
+                    share_count=self.n,
+                    part_id=part_id,
+                    part_count=self.hmac_part_count,
+                    size=self.macs[0].size,
+                    algorithm=self.macs[0].algo)
+                data = header.to_bytes() + hmac_chunk
+                subtitle = f"Share {share_id} - " \
+                    f"Part {part_num}/{self.n_parts}\n" \
+                    f"Recover secret with {self.m} of {self.n} shares.\n" \
+                    f"Require all parts of each share.\n" \
+                    "--- Header Details ---\n" \
+                    f"Version: {header.version}\n" \
+                    f"HMAC Segment: {part_id + 1}/{self.hmac_part_count}\n" \
+                    f"Algorithm: {header.algorithm}"
+                qr_encode(data, path, title=self.secret_name, subtitle=subtitle)
 
     def post_process(self, share_id, header, part_number, path):
         with path.open('rb') as f:
@@ -200,19 +239,7 @@ class QRDecoder(FileDecoder):
 
     def __init__(self, in_dirs, **opts):
         super().__init__(in_dirs, **opts)
-        try:
-            proc = subprocess.run(['zbarimg', '--version'],
-                                  capture_output=True)
-        except FileNotFoundError:
-            raise ErrorMessage(
-                "The external program zbarimg is required to decode QRCODEs "
-                "but is not available on the PATH.")
-        if proc.returncode != 0:
-            eprint(proc.stderr.decode())
-            raise ErrorMessage(
-                "The external program zbarimg is required to decode QRCODEs "
-                "appears to be broken. Try running: zbarimg --version")
-
+        ensure_prog(['zbarimg', '--version'], "to decode QRCODEs")
 
     def read_file(self, path, *, seek=0):
         data = qr_decode(path)
@@ -224,3 +251,18 @@ class QRDecoder(FileDecoder):
                 mime_type = mimetypes.types_map.get(path.suffix.lower())
                 if mime_type and re.split('/', mime_type)[0] == 'image':
                     yield path
+
+
+def ensure_prog(cmdline, reason):
+    prog = cmdline[0]
+    try:
+        proc = subprocess.run(cmdline, capture_output=True)
+    except FileNotFoundError:
+        raise ErrorMessage(
+            f"The external program {prog} is required {reason} but is not "
+            "available on the PATH.")
+    if proc.returncode != 0:
+        eprint(proc.stderr.decode())
+        raise ErrorMessage(
+            f"The external program {prog} is required {reason}, but appears to "
+            f"be broken. Try running: {' '.join(cmdline)}")
