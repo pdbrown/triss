@@ -3,7 +3,6 @@
 
 import pytest
 from hypothesis import example, given, settings, strategies as st, HealthCheck
-import copy
 import itertools
 from pathlib import Path
 import random

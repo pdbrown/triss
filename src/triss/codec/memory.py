@@ -12,8 +12,6 @@ class MemoryCodec(MappingEncoder, Decoder):
         self.store = []
         self.store_segment = None
         self.current_segment_id = None
-        self.m = 0
-        self.n = 0
         self.decoder_share_ids = None
 
     # Encoder impl

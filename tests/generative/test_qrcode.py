@@ -3,14 +3,9 @@
 
 import pytest
 from hypothesis import example, given, settings, strategies as st, HealthCheck
-import copy
-import random
 
 from . import gen_common
-from .. import helpers
 
-from triss import byte_seqs
-from triss import crypto
 try:
     from triss.codec import qrcode
     from triss.codec.qrcode import QR_SIZE_MAX_BYTES
