@@ -11,7 +11,7 @@ import subprocess
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
-from triss import byte_seqs, codec, crypto
+from triss import byte_streams, codec, crypto
 from triss.codec import FragmentHeader, MacHeader, TaggedDecoder
 from triss.codec.data_file import FileSegmentEncoder, FileDecoder
 from triss.util import ErrorMessage, eprint, div_up
@@ -150,7 +150,7 @@ class QREncoder(FileSegmentEncoder):
 
     def encode(self, secret_data_segments, m, n,
                mac_size_bits=crypto.DEFAULT_MAC_SIZE_BITS):
-        secret_data_segments = byte_seqs.resize_seqs(QR_DATA_SIZE_BYTES,
+        secret_data_segments = byte_streams.resize_seqs(QR_DATA_SIZE_BYTES,
                                                      secret_data_segments)
         super().encode(secret_data_segments, m, n, mac_size_bits=mac_size_bits)
 
@@ -168,7 +168,7 @@ class QREncoder(FileSegmentEncoder):
 
     def write_hmacs(self, share_id, header, aset_macs):
         header.part_count = self.hmac_part_count
-        mac_stream = byte_seqs.resize_seqs(
+        mac_stream = byte_streams.resize_seqs(
             QR_MAC_DATA_SIZE_BYTES,
             codec.aset_mac_byte_stream(header.fragment_id,
                                        aset_macs))

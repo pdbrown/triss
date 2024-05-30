@@ -11,7 +11,7 @@ import re
 import sys
 import tempfile
 
-from triss.byte_seqs import resize_seqs
+from triss.byte_streams import resize_seqs
 from triss.codec import data_file
 from triss.util import ErrorMessage, eprint, iter_str
 
@@ -51,7 +51,7 @@ def authorized_share_sets(share_parent_dir, m):
     share_dirs = Path(share_parent_dir).iterdir()
     return itertools.combinations(share_dirs, m)
 
-def assert_byte_seqs_equal(bs_x, bs_y, err_msg="Byte seqs not equal!"):
+def assert_byte_streams_equal(bs_x, bs_y, err_msg="Byte seqs not equal!"):
     bs_x = resize_seqs(4096, bs_x)
     bs_y = resize_seqs(4096, bs_y)
 
@@ -79,7 +79,7 @@ def check_asets_combine(in_file, out_dir, m, input_format):
                     "Combine check failed! Unable to combine shares in " \
                     f"{iter_str(share_dirs)}.")
             if in_file:
-                assert_byte_seqs_equal(
+                assert_byte_streams_equal(
                     read_buffered(in_file),
                     read_buffered(f),
                     err_msg="Combine check failed! Result of combining " \

@@ -11,7 +11,7 @@ import tempfile
 from . import gen_common
 from .. import helpers
 
-from triss.byte_seqs import resize_seqs
+from triss.byte_streams import resize_seqs
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder
 try:

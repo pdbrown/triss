@@ -2,7 +2,7 @@ from enum import IntEnum
 import itertools
 from collections import defaultdict, namedtuple
 
-from triss import byte_seqs
+from triss import byte_streams
 from triss import crypto
 from triss.util import ErrorMessage, eprint
 
@@ -120,7 +120,7 @@ class Header:
         byte_stream = iter(byte_stream)
         for header_cls in Header.__subclasses__():
             try:
-                chunk, byte_stream = byte_seqs.take_and_drop(
+                chunk, byte_stream = byte_streams.take_and_drop(
                     header_cls.size_bytes(), byte_stream)
             except StopIteration:
                 return (None, None)
@@ -461,7 +461,7 @@ class TaggedDecoder(Decoder):
 
     def fragments(self, authorized_set):
         frag_streams = [
-            byte_seqs.resize_seqs(
+            byte_streams.resize_seqs(
                 self.fragment_read_size,
                 self.fragment_data_stream(tagged_frag.handle))
             for tagged_frag

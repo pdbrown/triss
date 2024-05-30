@@ -6,7 +6,7 @@ import pytest
 import itertools
 from pathlib import Path
 
-from triss.byte_seqs import resize_seqs
+from triss.byte_streams import resize_seqs
 from triss.codec import Header, FragmentHeader
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder

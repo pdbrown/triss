@@ -3,7 +3,7 @@
 
 import pytest
 
-from triss.byte_seqs import take_and_drop, resize_seqs
+from triss.byte_streams import take_and_drop, resize_seqs
 
 def test_take_and_drop():
     bs = [b'asdf', b'qwer', b'zxcv']

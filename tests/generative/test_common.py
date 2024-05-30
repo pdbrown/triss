@@ -8,7 +8,7 @@ import random
 
 from . import gen_common
 
-from triss import byte_seqs
+from triss import byte_streams
 from triss import crypto
 
 @st.composite
@@ -68,7 +68,7 @@ def test_split_combine(xs, n):
 def test_take_and_drop(bs_head):
     n, bs = bs_head
     bs_input = copy.deepcopy(bs)
-    head, bs = byte_seqs.take_and_drop(n, bs)
+    head, bs = byte_streams.take_and_drop(n, bs)
     rest = flatten_chunks(bs)
     assert head + rest == flatten_chunks(bs_input)
 
@@ -76,7 +76,7 @@ def test_take_and_drop(bs_head):
 @given(xs=st.lists(st.binary()), n=st.integers(min_value=1, max_value=50))
 @settings(max_examples=200)
 def test_resize_seqs(xs, n):
-    resized = byte_seqs.resize_seqs(n, xs)
+    resized = byte_streams.resize_seqs(n, xs)
     chunks = list(resized)
     for chunk in chunks[0:-1]:
         assert len(chunk) == n
