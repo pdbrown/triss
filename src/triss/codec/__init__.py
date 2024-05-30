@@ -8,9 +8,14 @@ from triss.util import ErrorMessage, eprint
 
 
 class Field:
-    def __init__(self, name, size):
+    def __init__(self, name, size, default=None):
+        """
+        A Header field NAME that converts to SIZE bytes when serialized.
+        """
         self.name = name
         self.size = size
+        if default is not None:
+            self.default = default
     def __repr__(self):
         return f"{type(self).__name__}({self.name}, {self.size})"
 
@@ -28,13 +33,14 @@ class IntField(Field):
 class BytesField(Field):
     default = b''
     def parse(self, data):
-        if len(data) < self.size:
-            raise ValueError(
-                f"Can't parse {self.name} field, need {self.size} bytes but "
-                f"only got {len(data)}.")
         return data[0:self.size]
 
     def generate(self, data):
+        if len(data) > self.size:
+            raise ValueError(
+                f"Got {len(data)} bytes, which is too many to generate {self}.")
+        zpadding = b'\0' * (self.size - len(data))
+        return data + zpadding
         return data
 
 class StrField(BytesField):
@@ -43,12 +49,7 @@ class StrField(BytesField):
         return super().parse(data).decode("utf-8")
 
     def generate(self, s):
-        data = s.encode("utf-8")
-        if len(data) > self.size:
-            raise ValueError(
-                f'Got too many bytes encoding utf-8 string "{s}" for {self}.')
-        zpadding = b'\0' * (self.size - len(data))
-        return data + zpadding
+        return super().generate(s.encode("utf-8"))
 
 class Header:
     @classmethod
@@ -56,46 +57,30 @@ class Header:
         # Length of all fields + 2 bytes for checksum.
         return sum(field.size for field in cls.FIELDS.values()) + 2
 
-    def __init__(self, info):
+    def __init__(self, **info):
         """
-        Construct Header given INFO dictionary.
+        Construct Header given INFO kwargs.
 
         INFO holds header data as typed objects (not just byte arrays), and is
-        keyed by strings in the self.fields() array. Retrieve header bytes with
-        get_bytes or to_bytes.
+        keyed by field names. Retrieve header bytes with get_bytes or to_bytes.
         """
-        self.info = info
-        info['tag'] = self.FIELDS['tag'].parse(self.TAG)
-        if not 'version' in info:
-            raise ValueError("Header info must contain 'version'")
         for k in self.FIELDS:
-            # Initialize to zero if undefined
-            if k not in info:
-                info[k] = self.FIELDS[k].default
+            v = info.get(k, self.FIELDS[k].default)
+            setattr(self, k, v)
             # Assert values in range. get_bytes throws an OverflowError if
             # value is to big to convert.
             self.get_bytes(k)
 
     def get_bytes(self, k):
         """Return value of field K as byte array."""
-        v = self.info[k]
+        v = getattr(self, k)
         return self.FIELDS[k].generate(v)
-
-    @property
-    def version(self):
-        return self.info['version']
 
     def to_bytes(self):
         """Return header as byte array."""
         data = bytes(itertools.chain.from_iterable(
             [self.get_bytes(f) for f in self.FIELDS]))
         return data + crypto.fletchers_checksum_16(data)
-
-    @classmethod
-    def create(cls, **info):
-        """Construct Header from INFO at current Header.VERSION."""
-        info['version'] = cls.VERSION
-        return cls(info)
 
     @classmethod
     def from_bytes(cls, data):
@@ -114,14 +99,16 @@ class Header:
         for k, field in cls.FIELDS.items():
             info[k] = field.parse(payload[i:i+field.size])
             i += field.size
-        if info['tag'] != cls.TAG:
+        tag = cls.FIELDS['tag'].default
+        if info['tag'] != tag:
             raise ValueError(
-                f"Header tag is not {cls.TAG}: is this a triss file?")
-        if info['version'] != cls.VERSION:
+                f"Header tag is not {tag}: is this a triss file?")
+        version = cls.FIELDS['version'].default
+        if info['version'] != version:
             raise ValueError(
                 f"Incompatible header version, got {info['version']}' but "
-                f"expected {cls.VERSION}")
-        return cls.create(**info)
+                f"expected {version}")
+        return cls(**info)
 
     @staticmethod
     def parse(byte_stream):
@@ -140,79 +127,39 @@ class Header:
             try:
                 return (header_cls.from_bytes(chunk), byte_stream)
             except ValueError as e:
-                # Put chunk back onto byte seqs and try again
+                # Push chunk back onto byte stream and try again
                 byte_stream = itertools.chain([chunk], byte_stream)
         return (None, byte_stream)
 
 
 class FragmentHeader(Header):
-    TAG = b'trissfrag'
     VERSION = 1
     FIELDS = fields_by_name(
-        BytesField("tag", 9),
-        IntField("version", 1),
+        BytesField("tag", 9, b'trissfrag'),
+        IntField("version", 1, 1),
         IntField("aset_id", 4),
         IntField("segment_id", 4),
         IntField("segment_count", 4),
         IntField("fragment_id", 4),
         IntField("fragment_count", 4))
 
-    @property
-    def aset_id(self):
-        return self.info['aset_id']
-
-    @property
-    def segment_id(self):
-        return self.info['segment_id']
-
-    @property
-    def segment_count(self):
-        return self.info['segment_count']
-
-    @segment_count.setter
-    def segment_count(self, n):
-        self.info['segment_count'] = n
-
-    @property
-    def fragment_id(self):
-        return self.info['fragment_id']
-
-    @property
-    def fragment_count(self):
-        return self.info['fragment_count']
-
-
 class MacHeader(Header):
-    TAG = b'trissmac'
     VERSION = 1
     FIELDS = fields_by_name(
-        BytesField("tag", 8),
-        IntField("version", 2),
-        IntField("share_count", 4),
+        BytesField("tag", 8, b'trissmac'),
+        IntField("version", 2, 1),
+        IntField("aset_id", 4),
+        # Store key for this fragment.
+        IntField("fragment_id", 4),
+        # Store macs for all fragments in order of fragment_id
+        IntField("fragment_count", 4),
+        # May need to split MAC data into multiple parts (in QRCODE mode).
+        # Analagous to "segments" in FragmentHeader, but don't reuse that name.
         IntField("part_id", 4),
         IntField("part_count", 4),
-        IntField("size", 4),
+        # Key and digest sizes in bits
+        IntField("size_bits", 4),
         StrField("algorithm", 20))
-
-    @property
-    def share_count(self):
-        return self.info['share_count']
-
-    @property
-    def part_id(self):
-        return self.info['part_id']
-
-    @property
-    def part_count(self):
-        return self.info['part_count']
-
-    @property
-    def size(self):
-        return self.info['size']
-
-    @property
-    def algorithm(self):
-        return self.info['algorithm']
 
 class Encoder:
     # Implementor's Interface
@@ -264,11 +211,11 @@ class Encoder:
         for segment_id in range(n_segments):
             for aset in authorized_sets:
                 for fragment_id, share_id in enumerate(aset['share_ids']):
-                    header = FragmentHeader.create(aset_id=aset['aset_id'],
-                                                   segment_id=segment_id,
-                                                   segment_count=n_segments,
-                                                   fragment_id=fragment_id,
-                                                   fragment_count=m)
+                    header = FragmentHeader(aset_id=aset['aset_id'],
+                                            segment_id=segment_id,
+                                            segment_count=n_segments,
+                                            fragment_id=fragment_id,
+                                            fragment_count=m)
                     self.finalize(share_id, header)
 
 

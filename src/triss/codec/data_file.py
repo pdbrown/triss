@@ -93,9 +93,9 @@ class FileEncoder(AppendingEncoder):
     def append(self, share_id, aset_id, fragment_id, fragment):
         path = self.mapping_encoder.file_path(
             share_id,
-            FragmentHeader.create(segment_id=self.SEGMENT_ID,
-                                  aset_id=aset_id,
-                                  fragment_id=fragment_id))
+            FragmentHeader(segment_id=self.SEGMENT_ID,
+                           aset_id=aset_id,
+                           fragment_id=fragment_id))
         with path.open(mode='ab') as f:
             f.write(fragment)
 

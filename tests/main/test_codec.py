@@ -19,16 +19,16 @@ except ModuleNotFoundError:
 
 
 def test_fragment_header():
-    h = FragmentHeader.create(aset_id=1,
-                              segment_id=2, segment_count=3,
-                              fragment_id=4, fragment_count=5)
+    h = FragmentHeader(aset_id=1,
+                       segment_id=2, segment_count=3,
+                       fragment_id=4, fragment_count=5)
     assert h.aset_id == 1
     assert h.segment_id == 2
     assert h.segment_count == 3
     assert h.fragment_id == 4
     assert h.fragment_count == 5
     assert h.version == FragmentHeader.VERSION
-    assert h.info['tag'] == b'trissfrag'
+    assert h.tag == b'trissfrag'
 
     h_bytes = h.to_bytes()
 
@@ -41,7 +41,7 @@ def test_fragment_header():
     assert parsed.segment_id == h.segment_id
     assert parsed.fragment_count == h.fragment_count
     assert parsed.version == h.version
-    assert parsed.info['tag'] == h.info['tag']
+    assert parsed.tag == h.tag
 
 def test_memory_codec():
     codec = MemoryCodec()
