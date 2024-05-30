@@ -24,8 +24,8 @@ mimetypes.init()
 QR_SIZE_MAX_BYTES = 1273
 QR_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - FragmentHeader.size_bytes()
 QR_MAC_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - MacHeader.size_bytes()
-QR_BOX_SIZE = 10
-QR_BORDER = 10
+QR_BOX_SIZE = 8
+QR_BORDER = 6
 MARGIN = QR_BOX_SIZE * QR_BORDER
 
 TRY_FONTS = ["Helvetica.ttf", "DejaVuSans.ttf", "Arial.ttf"]
@@ -80,6 +80,14 @@ def merge_img_y(im_top, im_bottom):
     im.paste(im_bottom, (0, im_top.size[1]))
     return im
 
+def pad_vertical(img):
+    w, h = img.size
+    if w <= h:
+        return img
+    out = Image.new('RGBA', (w, w + 1), 'white')
+    out.paste(img)
+    return out
+
 def find_font(size):
     for font in TRY_FONTS:
         try:
@@ -88,22 +96,41 @@ def find_font(size):
             pass
     return None
 
-def add_caption(img, title, subtitle=None):
-    w = max(img.size[0], 500)
-    h = 320
-    capt = Image.new('RGB', (w, h), 'white')
-    d = ImageDraw.Draw(capt)
-    title_font = find_font(48)
-    line_y = 310
-    d.line(((MARGIN, line_y), (w - MARGIN, line_y)), 'gray')
-    d.text((w/2, 70), title, fill='black', font=title_font, anchor='md',
-           align='center')
-    if subtitle:
-        body_font = find_font(24)
-        d.text((w/2, 300), subtitle, fill='black', font=body_font, anchor='md',
-               align='center')
+def font_height(font, text, spacing=4):
+    img = Image.new("RGBA", (1,1))
+    d = ImageDraw.Draw(img)
+    (left, top, right, bottom) = d.multiline_textbbox(
+        (0, 0), text, font=font, spacing=spacing)
+    return bottom - top
 
-    return merge_img_y(capt, img)
+def add_caption(img, title, subtitle=""):
+    # Resize images so text has constant size regardless of the qrcode IMG
+    # size.
+    spacing = 6
+    n_lines = len(subtitle.split("\n"))
+    qr_v40_modules = 177
+    # width of version 40 qr code
+    w = (qr_v40_modules + 2 * QR_BORDER) * QR_BOX_SIZE
+    title_font = find_font(6 * QR_BOX_SIZE)
+    body_font = find_font(4 * QR_BOX_SIZE)
+    title_h = font_height(title_font, title, spacing=spacing)
+    body_h = font_height(body_font, subtitle, spacing=spacing)
+    y_margin = 3 * spacing
+    h = title_h + body_h + 2 * y_margin
+    h = int(h * 1)
+    capt = Image.new('RGBA', (w, h), 'white')
+    d = ImageDraw.Draw(capt)
+    line_y = h - 1
+    d.line(((MARGIN, line_y), (w - MARGIN, line_y)), 'gray')
+    d.text((20, 0), title, fill='black', font=title_font, spacing=spacing)
+    if subtitle:
+        d.text((30, title_h + y_margin), subtitle, fill='black', font=body_font, spacing=spacing)
+
+    captioned = merge_img_y(capt, img)
+    # Add enough vertical padding to make image square so it prints in portrait
+    # by default.
+    return pad_vertical(captioned)
+
 
 def qr_encode(data, path, *, title=None, subtitle=None):
     if not do_qrencode(data, path):
