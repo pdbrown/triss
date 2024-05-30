@@ -81,7 +81,7 @@ def m_of_n_access_structure(m, n):
     of M fragments of the secret, produced by the split_secret(secret_data, M)
     function, called once per authorized set. Each share ends up with a
     fragment from (N-1 choose M-1) of the authorized sets (see
-    num_fragments_per_share for explanation).
+    num_asets_per_share for explanation).
 
     Identify both shares and authorized sets by 0-based integer ids. Return the
     access structure as a list of authorized sets, in which each authorized set
@@ -146,7 +146,7 @@ def num_asets(m, n):
     return math.comb(n, m)
 
 
-def num_fragments_per_share(m, n):
+def num_asets_per_share(m, n):
     """Return the number of fragments assigned to a share of an M-of-N split
 
     which is (N-1 choose M-1).

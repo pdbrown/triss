@@ -203,6 +203,8 @@ Make sure you keep parts of a share together and distribute complete shares with
 all their parts. If any part is missing, the share is useless.
 
 ```
+TODO FIXME
+
 shares
 ├── share-0
 │   ├── share-0_part-1_of_3.dat
@@ -297,6 +299,27 @@ function is expensive enough, the resulting system is no longer information
 theoretically secure.
 
 ##### A better authentication scheme
+
+```
+m=3 of n=5
+
+    share 0:  A1  B1  C1  D1  E1  F1
+    share 1:  A2  B2  C2               G1 H1 I1
+    share 2:  A3          D2  E2       G2 H2    J1
+    share 3:      B3      D3      F2   G3    I2 J2
+    share 4:          C3      E3  F3      H4 I3 J3
+
+
+10 asets => 30 hmacs: one for each frag (all segs of frag)
+
+for aset A:
+  share 0: A1_key, A1_MAC, A2_MAC, A3_MAC
+  share 1: A2_key, A1_MAC, A2_MAC, A3_MAC
+  share 2: A3_key, A1_MAC, A2_MAC, A3_MAC
+
+
+
+```
 
 This is similar to the flawed one above, but uses HMAC instead of a plain hash.
 Split a password into 2 shares `s1` and `s2`. Participants `p1` and `p2` each

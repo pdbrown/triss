@@ -11,7 +11,7 @@ import subprocess
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
-from triss import byte_seqs, crypto
+from triss import byte_seqs, codec, crypto
 from triss.codec import FragmentHeader, MacHeader, TaggedDecoder
 from triss.codec.data_file import FileSegmentEncoder, FileDecoder
 from triss.util import ErrorMessage, eprint, div_up
@@ -160,34 +160,34 @@ class QREncoder(FileSegmentEncoder):
         hmac_data_size_bytes = (self.n + 1) * self.mac_size_bits // 8
         self.hmac_part_count = div_up(hmac_data_size_bytes,
                                       QR_MAC_DATA_SIZE_BYTES)
-        self.n_parts = self.n_fragments + self.hmac_part_count
+        self.n_parts = self.n_frag_parts + \
+            (self.hmac_part_count * self.asets_per_share)
         # Number of digits needed to print 1-based part number ordinals.
         self.part_num_width = int(math.log10(self.n_parts)) + 1
         self.part_numbers = defaultdict(int)
 
-    def write_hmacs(self):
-        for share_id in range(self.n):
-            hmac_bs = byte_seqs.resize_seqs(QR_MAC_DATA_SIZE_BYTES,
-                                            self.hmac_byte_stream(share_id))
-            for part_id, hmac_chunk in enumerate(hmac_bs):
-                part_num, name = self.next_part_num_name(share_id)
-                path = (self.share_dir(share_id) / name).with_suffix(".png")
-                header = MacHeader.create(
-                    share_count=self.n,
-                    part_id=part_id,
-                    part_count=self.hmac_part_count,
-                    size=self.macs[0].size,
-                    algorithm=self.macs[0].algo)
-                data = header.to_bytes() + hmac_chunk
-                subtitle = f"Share {share_id} - " \
-                    f"Part {part_num}/{self.n_parts}\n" \
-                    f"Recover secret with {self.m} of {self.n} shares.\n" \
-                    f"Require all parts of each share.\n" \
-                    "--- Header Details ---\n" \
-                    f"Version: {header.version}\n" \
-                    f"HMAC Segment: {part_id + 1}/{self.hmac_part_count}\n" \
-                    f"Algorithm: {header.algorithm}"
-                qr_encode(data, path, title=self.secret_name, subtitle=subtitle)
+    def write_hmacs(self, share_id, header, aset_macs):
+        header.part_count = self.hmac_part_count
+        mac_stream = byte_seqs.resize_seqs(
+            QR_MAC_DATA_SIZE_BYTES,
+            codec.aset_mac_byte_stream(header.fragment_id,
+                                       aset_macs))
+        for part_id, chunk in enumerate(mac_stream):
+            part_num, name = self.next_part_num_name(share_id)
+            path = (self.share_dir(share_id) / name).with_suffix(".png")
+            header.part_id = part_id
+            data = header.to_bytes() + chunk
+            subtitle = f"Share {share_id} - " \
+                f"Part {part_num}/{self.n_parts}\n" \
+                f"Recover secret with {self.m} of {self.n} shares.\n" \
+                f"Require all parts of each share.\n" \
+                "--- Header Details ---\n" \
+                f"Version: {header.version}\n" \
+                f"HMAC key for Fragment: {header.fragment_id}\n" \
+                f"HMACs for Authorized Set: {header.aset_id}\n" \
+                f"HMAC Part: {part_id + 1}/{self.hmac_part_count}\n" \
+                f"Algorithm: {header.algorithm}"
+            qr_encode(data, path, title=self.secret_name, subtitle=subtitle)
 
     def post_process(self, share_id, header, part_number, path):
         with path.open('rb') as f:

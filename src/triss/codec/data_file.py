@@ -7,6 +7,7 @@ import math
 import os
 from pathlib import Path
 
+from triss import codec
 from triss.codec import FragmentHeader, MacHeader, \
     MappingEncoder, AppendingEncoder, TaggedDecoder
 from triss.util import ErrorMessage, eprint
@@ -40,8 +41,8 @@ class FileSegmentEncoder(MappingEncoder):
 
     def summary(self, n_segments):
         super().summary(n_segments)
-        # Add one extra part to hold hmac data
-        self.n_parts = self.n_fragments + 1
+        # Add one extra part per aset to hold hmacs
+        self.n_parts = self.n_frag_parts + self.asets_per_share
         # Number of digits needed to print 1-based part number ordinals.
         self.part_num_width = int(math.log10(self.n_parts)) + 1
         self.part_numbers = defaultdict(int)
@@ -53,19 +54,16 @@ class FileSegmentEncoder(MappingEncoder):
         nf = f"{n:0{self.part_num_width}}"
         return (n, f"share-{share_id}_part-{nf}_of_{self.n_parts}.dat")
 
-    def write_hmacs(self):
-        for share_id in range(self.n):
-            _, name = self.next_part_num_name(share_id)
-            path = self.share_dir(share_id) / name
-            with path.open(mode='wb') as f:
-                f.write(MacHeader.create(
-                    share_count=self.n,
-                    part_id=0,
-                    part_count=1,
-                    size=self.macs[0].size,
-                    algorithm=self.macs[0].algo).to_bytes())
-                for chunk in self.hmac_byte_stream(share_id):
-                    f.write(chunk)
+    def write_hmacs(self, share_id, header, aset_macs):
+        header.part_id = 0
+        header.part_count = 1
+        _, name = self.next_part_num_name(share_id)
+        path = self.share_dir(share_id) / name
+        with path.open(mode='wb') as f:
+            f.write(header.to_bytes())
+            for chunk in codec.aset_mac_byte_stream(header.fragment_id,
+                                                    aset_macs):
+                f.write(chunk)
 
     def finalize(self, share_id, header):
         # eprint(f"finalize: seg {segment_id}, aset: {aset_id}, share: {share_id}, frag: {fragment_id}")

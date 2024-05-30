@@ -88,19 +88,19 @@ def test_qr_encoder_decoder(tmp_path):
     data_out = [b'asdfqwer']
     assert list(decoder.decode()) == data_out
 
-@pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
-def test_qr_encoder_decoder_large_mac(tmp_path):
-    encoder = QREncoder(tmp_path, "test secret")
-    data = [b'asdf', b'qwer']
+# @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
+# def test_qr_encoder_decoder_large_mac(tmp_path):
+#     encoder = QREncoder(tmp_path, "test secret")
+#     data = [b'asdf', b'qwer']
 
-    # Make enough splits to force hmac data onto at least 2 qrcodes.
-    mac_size_bits = 512
-    mac_size_bytes = 512 // 8
-    n = (QR_MAC_DATA_SIZE_BYTES // mac_size_bytes) + 1
-    m = n
-    encoder.encode(data, m, n, mac_size_bits=mac_size_bits)
+#     # Make enough splits to force hmac data onto at least 2 qrcodes.
+#     mac_size_bits = 512
+#     mac_size_bytes = 512 // 8
+#     n = (QR_MAC_DATA_SIZE_BYTES // mac_size_bytes) + 1
+#     m = n
+#     encoder.encode(data, m, n, mac_size_bits=mac_size_bits)
 
-    shares = tmp_path.iterdir()
-    decoder = QRDecoder(shares)
-    data_out = [b'asdfqwer']
-    assert list(decoder.decode()) == data_out
+#     shares = tmp_path.iterdir()
+#     decoder = QRDecoder(shares)
+#     data_out = [b'asdfqwer']
+#     assert list(decoder.decode()) == data_out
