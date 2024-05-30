@@ -107,6 +107,7 @@ def do_split(in_file, out_dir,
     else:
         raise ErrorMessage(f"Unknown output format {output_format}.")
 
+    m = m or n
     encoder.encode(read_buffered(in_file), m, n)
 
     if not skip_combine_check:

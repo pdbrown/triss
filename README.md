@@ -198,7 +198,7 @@ done
 more recovered*.txt | cat
 ```
 
-Each share is put into its own subdirectory and may consist of _multiple parts_.
+Each share is put into its own subdirectory and consists of _multiple parts_.
 Make sure you keep parts of a share together and distribute complete shares with
 all their parts. If any part is missing, the share is useless.
 
