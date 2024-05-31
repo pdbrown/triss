@@ -12,7 +12,7 @@ import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
 from triss import byte_streams, codec, crypto
-from triss.codec import FragmentHeader, MacHeader, TaggedDecoder
+from triss.codec import FragmentHeader, MacHeader, Encoder
 from triss.codec.data_file import FileSegmentEncoder, FileDecoder
 from triss.util import ErrorMessage, eprint, div_up
 
@@ -149,10 +149,10 @@ class QREncoder(FileSegmentEncoder):
         ensure_prog(['qrencode', '--version'], "to encode QRCODEs")
 
     def encode(self, secret_data_segments, m, n,
-               mac_size_bits=crypto.DEFAULT_MAC_SIZE_BITS):
+               mac_algorithm=Encoder.DEFAULT_MAC_ALGORITHM):
         secret_data_segments = byte_streams.resize_seqs(QR_DATA_SIZE_BYTES,
-                                                     secret_data_segments)
-        super().encode(secret_data_segments, m, n, mac_size_bits=mac_size_bits)
+                                                        secret_data_segments)
+        super().encode(secret_data_segments, m, n, mac_algorithm=mac_algorithm)
 
     def summary(self, n_segments):
         super().summary(n_segments)
@@ -162,20 +162,19 @@ class QREncoder(FileSegmentEncoder):
         # - MAC output has:
         #   - 1 key
         #   - 1 digest for each segment of each fragment
-        hmac_bytes = (1 + n_frag_parts) * (self.mac_size_bits // 8)
-        self.n_hmac_parts_per_share = div_up(hmac_bytes, QR_MAC_DATA_SIZE_BYTES)
-        self.n_parts_per_share = n_frag_parts + self.n_hmac_parts_per_share
+        mac_bytes = (1 + n_frag_parts) * \
+            crypto.digest_size_bytes(self.mac_algorithm)
+        self.n_mac_parts_per_share = div_up(mac_bytes, QR_MAC_DATA_SIZE_BYTES)
+        self.n_parts_per_share = n_frag_parts + self.n_mac_parts_per_share
         # Number of digits needed to print 1-based part number ordinals.
         self.part_num_width = int(math.log10(self.n_parts_per_share)) + 1
         self.part_numbers = defaultdict(int)
 
-    def write_hmacs(self, share_id, header, aset_macs):
-        header.part_count = self.n_hmac_parts_per_share
-        mac_stream = byte_streams.resize_seqs(
-            QR_MAC_DATA_SIZE_BYTES,
-            codec.aset_mac_byte_stream(header.fragment_id,
-                                       aset_macs))
-        for part_id, chunk in enumerate(mac_stream):
+    def write_macs(self, share_id, header, mac_data_stream):
+        header.part_count = self.n_mac_parts_per_share
+        mac_data_stream = byte_streams.resize_seqs(
+            QR_MAC_DATA_SIZE_BYTES, mac_data_stream)
+        for part_id, chunk in enumerate(mac_data_stream):
             part_num, name = self.next_part_num_name(share_id)
             path = (self.share_dir(share_id) / name).with_suffix(".png")
             header.part_id = part_id
@@ -186,10 +185,10 @@ class QREncoder(FileSegmentEncoder):
                 f"Require all parts of each share.\n" \
                 "--- Header Details ---\n" \
                 f"Version: {header.version}\n" \
-                f"HMAC key for Fragment: {header.fragment_id}\n" \
-                f"HMACs for Authorized Set: {header.aset_id}\n" \
-                f"HMAC Part: {part_id + 1}/{header.part_count}\n" \
-                f"Algorithm: {header.algorithm}"
+                f"MAC key for Fragment: {header.fragment_id}\n" \
+                f"MACs for Authorized Set: {header.aset_id}\n" \
+                f"MAC Part: {part_id + 1}/{header.part_count}\n" \
+                f"MAC Algorithm: {header.algorithm}"
             qr_encode(data, path, title=self.secret_name, subtitle=subtitle)
 
     def post_process(self, share_id, header, part_number, path):
@@ -234,7 +233,7 @@ def qr_decode(path):
          '--raw', '-Sbinary', path],
         capture_output=True)
     if proc.returncode == 4:
-        eprint(f"Warning: No QRCODE detected in {path}. Skipping it.")
+        eprint(f"Warning: No QRCODE detected in {path}.")
         return bytes()
     if proc.returncode < 0:
         # Then terminated by signal
@@ -287,10 +286,10 @@ def ensure_prog(cmdline, reason):
     prog = cmdline[0]
     try:
         proc = subprocess.run(cmdline, capture_output=True)
-    except FileNotFoundError:
+    except FileNotFoundError as e:
         raise ErrorMessage(
             f"The external program {prog} is required {reason} but is not "
-            "available on the PATH.")
+            "available on the PATH.") from e
     if proc.returncode != 0:
         eprint(proc.stderr.decode())
         raise ErrorMessage(

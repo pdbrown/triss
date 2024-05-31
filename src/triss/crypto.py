@@ -1,10 +1,11 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-from collections import namedtuple
+import functools
 import itertools
 import hmac
 import math
+import re
 import secrets
 
 from triss.util import ErrorMessage
@@ -178,24 +179,37 @@ def num_asets_per_share(m, n):
     return math.comb(n - 1, m - 1)
 
 
-DEFAULT_MAC_SIZE_BITS = 384
+DEFAULT_ALGORITHM = "hmac-sha384"
 
-def new_hmac_key(size_bits=DEFAULT_MAC_SIZE_BITS):
-    if size_bits not in [256, 384, 512]:
-        raise ValueError(f"Invalid size {size_bits}.")
-    return secrets.token_bytes(size_bits // 8)
+@functools.lru_cache
+def digest_size_bytes(algo):
+    if not algo.startswith("hmac-"):
+        raise ValueError("Unsupported MAC algorithm. Triss only supports HMAC "
+                         "so algorithm name should start with 'hmac-' but "
+                         f"got '{algo}'")
+    digestmod = re.sub('^hmac-', '', algo.lower())
+    return hmac.new(b'', digestmod=digestmod).digest_size
 
-def hmac_algo_name(size_bits=DEFAULT_MAC_SIZE_BITS):
-    return f"sha{size_bits}"
+def new_mac_key(algo=DEFAULT_ALGORITHM):
+    # At least 256 bits (32 bytes) of key material.
+    key_size = max(32, digest_size_bytes(algo))
+    return secrets.token_bytes(key_size)
 
-def new_hmac(key, size_bits=DEFAULT_MAC_SIZE_BITS):
+def new_mac(key, algo=DEFAULT_ALGORITHM):
     """
     Return new KeyedHmac of SIZE_BITS, the size in bits
 
     of both the secret key and the digest.
     """
-    if size_bits not in [256, 384, 512]:
-        raise ValueError(f"Invalid size {size_bits}.")
-    return hmac.new(key, digestmod=hmac_algo_name(size_bits))
+    if not algo.startswith("hmac-"):
+        raise ValueError("Unsupported MAC algorithm. Triss only supports HMAC "
+                         "so algorithm name should start with 'hmac-' but "
+                         f"got '{algo}'")
+    digestmod = re.sub('^hmac-', '', algo.lower())
+    if len(key) < digest_size_bytes(algo):
+        raise ValueError(
+            f"MAC key is too short: got {len(key)} bytes but require at least "
+            f"{digest_size_bytes(algo)} for {algo}.")
+    return hmac.new(key, digestmod=digestmod)
 
 digests_equal = hmac.compare_digest

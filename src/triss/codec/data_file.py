@@ -9,7 +9,7 @@ from pathlib import Path
 
 from triss import codec
 from triss.codec import FragmentHeader, MacHeader, \
-    MappingEncoder, AppendingEncoder, TaggedDecoder
+    MappingEncoder, AppendingEncoder, Decoder
 from triss.util import ErrorMessage, eprint
 
 def set_segment_count(path, segment_count):
@@ -41,10 +41,10 @@ class FileSegmentEncoder(MappingEncoder):
 
     def summary(self, n_segments):
         super().summary(n_segments)
-        # Add one extra part per aset to hold hmacs
+        # Add one extra part per aset to hold macs
         n_frag_parts = self.n_segments * self.n_asets_per_share
-        n_hmac_parts = self.n_asets_per_share
-        self.n_parts_per_share = n_frag_parts + n_hmac_parts
+        n_mac_parts = self.n_asets_per_share
+        self.n_parts_per_share = n_frag_parts + n_mac_parts
         # Number of digits needed to print 1-based part number ordinals.
         self.part_num_width = int(math.log10(self.n_parts_per_share)) + 1
         self.part_numbers = defaultdict(int)
@@ -57,15 +57,14 @@ class FileSegmentEncoder(MappingEncoder):
         return (n, f"share-{share_id}_part-{nf}_of_"
                 f"{self.n_parts_per_share}.dat")
 
-    def write_hmacs(self, share_id, header, aset_macs):
+    def write_macs(self, share_id, header, mac_data_stream):
         header.part_id = 0
         header.part_count = 1
         _, name = self.next_part_num_name(share_id)
         path = self.share_dir(share_id) / name
         with path.open(mode='wb') as f:
             f.write(header.to_bytes())
-            for chunk in codec.aset_mac_byte_stream(header.fragment_id,
-                                                    aset_macs):
+            for chunk in mac_data_stream:
                 f.write(chunk)
 
     def finalize(self, share_id, header):
@@ -101,7 +100,7 @@ class FileEncoder(AppendingEncoder):
             f.write(fragment)
 
 
-class FileDecoder(TaggedDecoder):
+class FileDecoder(Decoder):
 
     CHUNK_SIZE = 4096
 
@@ -126,9 +125,10 @@ class FileDecoder(TaggedDecoder):
                 if path.suffix == suffix:
                     yield path
 
-    def fragment_streams(self):
+    def input_streams(self):
         for f in self.find_files():
             yield (f, self.read_file(f))
 
-    def fragment_data_stream(self, handle):
-        return self.read_file(handle, seek=FragmentHeader.size_bytes())
+    def payload_stream(self, tagged_input):
+        return self.read_file(tagged_input.handle,
+                              seek=tagged_input.header.size_bytes())

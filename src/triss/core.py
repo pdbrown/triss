@@ -1,7 +1,6 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-from collections import defaultdict, namedtuple
 import contextlib
 import itertools
 import io
@@ -10,10 +9,11 @@ import os
 import re
 import sys
 import tempfile
+import traceback
 
 from triss.byte_streams import resize_seqs
 from triss.codec import MacWarning, data_file
-from triss.util import ErrorMessage, eprint, iter_str
+from triss.util import ErrorMessage, eprint, iter_str, print_exception, verbose
 
 try:
     # TODO FIXME !!!!!!!!! better test for this now separarte encode vs decode
@@ -22,12 +22,25 @@ try:
 except ModuleNotFoundError:
     have_qrcode = False
 
-# Triss relies on dict behavior as of 3.7:
-# - Dictionary order is guaranteed to be insertion order
-if sys.version_info < (3, 7):
-    eprint("Error: Python version is too old. Need at least 3.7 but running:")
-    eprint(sys.version)
-    sys.exit(1)
+def python_version_check(args):
+    """
+    Assert python version.
+
+    Triss relies on dict behavior as of 3.7:
+    - Dictionary order is guaranteed to be insertion order
+    As of 3.10:
+    - traceback.print_exception(exc) now accepts an Exception as the first arg
+    (only used in verbose mode)
+    """
+    if sys.version_info < (3, 7):
+        eprint("Error: Python version is too old. Need at least 3.7 but running:")
+        eprint(sys.version)
+        sys.exit(1)
+    if args.verbose and sys.version_info < (3, 10):
+        eprint("Error: Python version is too old. Need at least 3.10 in verbose "
+               "mode but running:")
+        eprint(sys.version)
+        sys.exit(1)
 
 DEFAULT_FORMAT='DATA'
 TRY_DECODERS = [data_file.FileDecoder]
@@ -58,7 +71,7 @@ def authorized_share_sets(share_parent_dir, m):
     share_dirs = Path(share_parent_dir).iterdir()
     return itertools.combinations(share_dirs, m)
 
-def assert_byte_streams_equal(bs_x, bs_y, err_msg="Byte seqs not equal!"):
+def assert_byte_streams_equal(bs_x, bs_y, err_msg="Byte streams not equal!"):
     bs_x = resize_seqs(4096, bs_x)
     bs_y = resize_seqs(4096, bs_y)
 
@@ -129,7 +142,12 @@ def try_decode(mk_decoder, dirs, out_file, ignore_mac_error):
     """
     try:
         decoder = mk_decoder(dirs)
-        eprint("Try decoding with", decoder.name())
+    except Exception as e:
+        eprint(f"Failed to build decoder with factory function: {mk_decoder}")
+        print_exception(e)
+        return False
+    try:
+        eprint("Try decoding with", decoder.name)
         output_chunks = decoder.decode(ignore_mac_error)
         n_chunks = 0
         with open_output(out_file) as f:
@@ -138,16 +156,22 @@ def try_decode(mk_decoder, dirs, out_file, ignore_mac_error):
                     f.write(chunk)
                     n_chunks += 1
         if n_chunks > 0:
-            return (True, False)  # success, don't print messages
+            if verbose():
+                eprint(f"Successfully decoded with {decoder.name}!")
+            return (True, verbose())  # success, print messages in verbose mode
         else:
             eprint("Got no output.")
     except MacWarning:
-        eprint("Decoded entire input, but unable to verify authenticity of "
-               "output. Inputs may have been tampered with!")
+        decoder.eprint(
+            "WARNING: Decoded entire input, but unable to verify authenticity "
+            "of output. Inputs may have been tampered with!")
+        if verbose():
+            traceback.print_exc()
         return (True, True)  # success, do print errors
     except Exception as e:
-        eprint("Failed to decode with:")
-        eprint(e)
+        decoder.print_registered_headers()
+        decoder.eprint("And failed to decode with:")
+        print_exception(e)
     return False
 
 def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
@@ -162,8 +186,14 @@ def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
         mk_decoders = TRY_DECODERS
 
     print_errors = True
+    if verbose():
+        # Don't interfere with stderr
+        cm = contextlib.nullcontext(None)
+    else:
+        # Suppress stderr, only print it if not successful.
+        cm = contextlib.redirect_stderr(io.StringIO())
     try:
-        with contextlib.redirect_stderr(io.StringIO()) as captured_err:
+        with cm as captured_err:
             loop_msg = ""
             for mk_decoder in mk_decoders:
                 if loop_msg:
@@ -174,7 +204,7 @@ def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
                     return True
                 loop_msg = "Trying next decoder."
     finally:
-        if print_errors:
+        if print_errors and hasattr(captured_err, 'getvalue'):
             err = captured_err.getvalue()
             if err:
                 eprint(err, end='')

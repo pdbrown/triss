@@ -318,14 +318,38 @@ Segment 1:
     share 4:          C3      E3  F3      H4 I3 J3
 
 
-10 asets => 30 hmacs: one for each frag (all segs of frag)
+10 asets => 60 hmacs: one for each seg of eadh frag
 
 for aset A:
-  share 0: A1_key, A1_MAC, A2_MAC, A3_MAC
-  share 1: A2_key, A1_MAC, A2_MAC, A3_MAC
-  share 2: A3_key, A1_MAC, A2_MAC, A3_MAC
+  share 0: A1_key, A1_MAC, A2_MAC, A3_MAC, A1_MAC, A2_MAC, A3_MAC
+  share 1: A2_key, A1_MAC, A2_MAC, A3_MAC, A1_MAC, A2_MAC, A3_MAC
+  share 2: A3_key, A1_MAC, A2_MAC, A3_MAC, A1_MAC, A2_MAC, A3_MAC
+                   ^-- segment 0           ^-- segment 1
 
 
+
+
+
+
+Simplest Example: 2-of-2 split, 1 segment (1 aset)
+
+Segment 0:
+    share 0: A1
+    share 1: A2
+
+Player 0 gets share 0:
+aset_id=0: (aset A)
+- fragment 0
+- MAC key_A_0 for share 0 (fragment 0)
+- MAC digest of (key_A_0, fragment 0)
+- MAC digest of (key_A_1, fragment 1)
+
+Player 1 gets share 1:
+aset_id=0: (aset A)
+- fragment 1
+- MAC key_A_1 for share 1 (fragment 1)
+- MAC digest of (key_A_0, fragment 0)
+- MAC digest of (key_A_1, fragment 1)
 
 ```
 
@@ -338,16 +362,13 @@ verify s2 later, so computes hmac(k1, s2)
 p1:
 s1 (private)
 k1 (private)
-h(k1) = h1 (public)
 hmac(s1, k1) = mac1(public)
 
 and get:
-h2
 mac2
 
 but don't have:
 k2, so can't brute force s2 = ? in hmac(?, k2) = mac2
-could try to brute force h(?) = h2, but is infeasible
 
 at decode time, get:
 k2 (can verify h2 = h(k2))

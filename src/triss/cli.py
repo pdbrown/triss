@@ -4,14 +4,18 @@
 import argparse
 import sys
 
-from triss import core
-from triss.util import ErrorMessage, eprint
+from triss import core, util
+from triss.util import ErrorMessage, eprint, print_exception
 
 def cli():
     parser = argparse.ArgumentParser(
         prog="triss",
         description="""Trivial secret sharing.
     Split input into M-of-N shares or recover input from a set of shares.""")
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help="verbose mode: log messages and tracebacks to "
+                        "stderr")
+
     sp = parser.add_subparsers(dest='command', required=True)
 
     s = sp.add_parser('split', help="Split secret into shares.")
@@ -51,6 +55,9 @@ def cli():
                    "decoded output matches the original input.")
 
     args = parser.parse_args()
+    core.python_version_check(args)
+    if args.verbose:
+        util.verbose(True)
     if args.command == 'split':
         core.do_split(args.i, args.out_dir, output_format=args.c,
                       m=args.m, n=args.n,
@@ -67,8 +74,9 @@ def main():
         cli()
         return 0
     except ErrorMessage as e:
-        eprint(e)
+        print_exception(e)
         return 1
+    # And let all other Exception types throw their traceback to the top level.
 
 if __name__ == '__main__':
     sys.exit(main())

@@ -51,7 +51,7 @@ def test_memory_codec():
 
     codec.encode(data, m, n)
 
-    for aset in itertools.combinations(range(n), m):
+    for aset in itertools.permutations(range(n), m):
         codec.use_authorized_set(aset)
         decoded = list(codec.decode())
         # print(f"Input:  {data}")
@@ -59,34 +59,30 @@ def test_memory_codec():
         assert decoded == data
 
 def test_file_encoder_decoder(tmp_path):
-    encoder = FileEncoder(tmp_path)
-    shares = [tmp_path / "share-1",
-              tmp_path / "share-3"]
-    decoder = FileDecoder(shares)
     data = [b'asdf', b'qwer']
+    data_out = [b'asd', b'fqw', b'er']
     m = 2
     n = 4
-
+    encoder = FileEncoder(tmp_path)
     encoder.encode(data, m, n)
-
-    data_out = [b'asd', b'fqw', b'er']
-    assert list(resize_seqs(3, decoder.decode())) == data_out
-
+    for aset in itertools.permutations(range(n), m):
+        shares = [tmp_path / f"share-{i}" for i in aset]
+        print(shares)
+        decoder = FileDecoder(shares)
+        assert list(resize_seqs(3, decoder.decode())) == data_out
 
 @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
 def test_qr_encoder_decoder(tmp_path):
-    encoder = QREncoder(tmp_path, "test secret")
-    shares = [tmp_path / "share-1",
-              tmp_path / "share-3"]
-    decoder = QRDecoder(shares)
     data = [b'asdf', b'qwer']
+    data_out = [b'asdfqwer']
     m = 2
     n = 4
-
+    encoder = QREncoder(tmp_path, "test secret")
     encoder.encode(data, m, n)
-
-    data_out = [b'asdfqwer']
-    assert list(decoder.decode()) == data_out
+    for aset in itertools.permutations(range(n), m):
+        shares = [tmp_path / f"share-{i}" for i in aset]
+        decoder = QRDecoder(shares)
+        assert list(decoder.decode()) == data_out
 
 # @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
 # def test_qr_encoder_decoder_large_mac(tmp_path):
@@ -94,11 +90,12 @@ def test_qr_encoder_decoder(tmp_path):
 #     data = [b'asdf', b'qwer']
 
 #     # Make enough splits to force hmac data onto at least 2 qrcodes.
+#     hmac_hash_function = "sha512"
 #     mac_size_bits = 512
 #     mac_size_bytes = 512 // 8
 #     n = (QR_MAC_DATA_SIZE_BYTES // mac_size_bytes) + 1
 #     m = n
-#     encoder.encode(data, m, n, mac_size_bits=mac_size_bits)
+#     encoder.encode(data, m, n, hmac_algorithm=hmac_algorithm)
 
 #     shares = tmp_path.iterdir()
 #     decoder = QRDecoder(shares)
