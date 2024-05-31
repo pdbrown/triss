@@ -12,10 +12,11 @@ import sys
 import tempfile
 
 from triss.byte_streams import resize_seqs
-from triss.codec import data_file
+from triss.codec import MacWarning, data_file
 from triss.util import ErrorMessage, eprint, iter_str
 
 try:
+    # TODO FIXME !!!!!!!!! better test for this now separarte encode vs decode
     from triss.codec import qrcode
     have_qrcode = True
 except ModuleNotFoundError:
@@ -120,11 +121,16 @@ def do_split(in_file, out_dir,
         check_asets_combine(in_file, out_dir, m, output_format)
 
 
-def try_decode(mk_decoder, dirs, out_file):
+def try_decode(mk_decoder, dirs, out_file, ignore_mac_error):
+    """
+    Try to decode. Return False on error, or tuple of (True, print_errors)
+
+    where print_errors is a boolean.
+    """
     try:
         decoder = mk_decoder(dirs)
         eprint("Try decoding with", decoder.name())
-        output_chunks = decoder.decode()
+        output_chunks = decoder.decode(ignore_mac_error)
         n_chunks = 0
         with open_output(out_file) as f:
             for chunk in output_chunks:
@@ -132,14 +138,19 @@ def try_decode(mk_decoder, dirs, out_file):
                     f.write(chunk)
                     n_chunks += 1
         if n_chunks > 0:
-            return True
+            return (True, False)  # success, don't print messages
         else:
             eprint("Got no output.")
+    except MacWarning:
+        eprint("Decoded entire input, but unable to verify authenticity of "
+               "output. Inputs may have been tampered with!")
+        return (True, True)  # success, do print errors
     except Exception as e:
-        eprint("Failed to decode with", e)
+        eprint("Failed to decode with:")
+        eprint(e)
     return False
 
-def do_combine(dirs, out_file, input_format=None):
+def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
     if input_format == 'DATA':
         mk_decoders = [data_file.FileDecoder]
     elif input_format == 'QRCODE':
@@ -157,8 +168,9 @@ def do_combine(dirs, out_file, input_format=None):
             for mk_decoder in mk_decoders:
                 if loop_msg:
                     eprint(loop_msg)
-                if try_decode(mk_decoder, dirs, out_file):
-                    print_errors = False
+                ret = try_decode(mk_decoder, dirs, out_file, ignore_mac_error)
+                if ret:
+                    _, print_errors = ret
                     return True
                 loop_msg = "Trying next decoder."
     finally:

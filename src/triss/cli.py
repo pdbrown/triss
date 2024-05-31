@@ -45,6 +45,10 @@ def cli():
     m.add_argument('-o', type=str, required=False,
                    metavar='OUT_FILE',
                    help="write secret to output file, or stdout if omitted")
+    m.add_argument('--DANGER-allow-invalid', required=False, action='store_true',
+                   help="Don't stop decoding on message authentication error. "
+                   "WARNING! Use of this flag means there is no guarantee the "
+                   "decoded output matches the original input.")
 
     args = parser.parse_args()
     if args.command == 'split':
@@ -52,7 +56,8 @@ def cli():
                       m=args.m, n=args.n,
                       secret_name=args.t, skip_combine_check=args.k)
     elif args.command == 'combine':
-        core.do_combine(args.in_dirs, args.o, args.c)
+        core.do_combine(args.in_dirs, args.o, args.c,
+                        ignore_mac_error=args.DANGER_allow_invalid)
     else:
         raise ErrorMessage(f"Invalid command: {args.command}")
 
