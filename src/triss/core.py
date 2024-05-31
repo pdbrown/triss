@@ -21,6 +21,12 @@ try:
 except ModuleNotFoundError:
     have_qrcode = False
 
+# Triss relies on dict behavior as of 3.7:
+# - Dictionary order is guaranteed to be insertion order
+if sys.version_info < (3, 7):
+    eprint("Error: Python version is too old. Need at least 3.7 but running:")
+    eprint(sys.version)
+    sys.exit(1)
 
 DEFAULT_FORMAT='DATA'
 TRY_DECODERS = [data_file.FileDecoder]
