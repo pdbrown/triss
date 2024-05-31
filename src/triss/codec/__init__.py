@@ -151,7 +151,8 @@ class MacHeader(Header):
         IntField("aset_id", 4),
         # Store key for this fragment.
         IntField("fragment_id", 4),
-        # Store macs for all fragments in order of fragment_id
+        # Store macs for all fragments of all segments in order of ids
+        IntField("segment_count", 4),
         IntField("fragment_count", 4),
         # May need to split MAC data into multiple parts (in QRCODE mode).
         # Analagous to "segments" in FragmentHeader, but don't reuse that name.
@@ -161,10 +162,14 @@ class MacHeader(Header):
         IntField("size_bits", 4),
         StrField("algorithm", 20))
 
+
+SegmentMacs = namedtuple("SegmentMacs", ["key", "hmacs"])
+
 def aset_mac_byte_stream(fragment_id, aset_macs):
     yield aset_macs[fragment_id].key
-    for mac in aset_macs:
-        yield mac.hmac.digest()
+    for segment_macs in aset_macs:
+        for hmac in segment_macs.hmacs:
+            yield hmac.digest()
 
 class Encoder:
     # Implementor's Interface
@@ -177,14 +182,14 @@ class Encoder:
         self.m = m
         self.n = n
         self.mac_size_bits = mac_size_bits
+        self.mac_algo = crypto.hmac_algo_name(mac_size_bits)
 
         self.n_asets = crypto.num_asets(m, n)
-        self.asets_per_share = crypto.num_asets_per_share(m, n)
-
-        self.macs = [[crypto.new_hmac(size_bits=mac_size_bits)
+        self.n_asets_per_share = crypto.num_asets_per_share(m, n)
+        self.macs = [[SegmentMacs(crypto.new_hmac_key(mac_size_bits), [])
                       for _fragment_id
                       in range(m)]
-                     for aset_id
+                     for _aset_id
                      in range(self.n_asets)]
 
     def encode_segments(self, secret_data_segments, m, n, authorized_sets):
@@ -192,7 +197,6 @@ class Encoder:
 
     def summary(self, n_segments):
         self.n_segments = n_segments
-        self.n_frag_parts = self.n_segments * self.asets_per_share
 
     def write_hmacs(self, share_id, header, aset_macs):
         pass
@@ -217,9 +221,10 @@ class Encoder:
                 self.write_hmacs(share_id,
                                  MacHeader(aset_id=aset_id,
                                            fragment_id=fragment_id,
+                                           segment_count=n_segments,
                                            fragment_count=m,
-                                           size_bits=aset_macs[0].size,
-                                           algorithm=aset_macs[0].algo),
+                                           size_bits=self.mac_size_bits,
+                                           algorithm=self.mac_algo),
                                  aset_macs)
                 for segment_id in range(n_segments):
                     self.finalize(share_id,
@@ -251,9 +256,11 @@ class MappingEncoder(Encoder):
                                             fragment_id=fragment_id,
                                             fragment_count=m)
                     self.write(share_id, header, fragment)
-                    self.macs[aset_id][fragment_id].hmac.update(fragment)
+                    seg_macs = self.macs[aset_id][fragment_id]
+                    hmac = crypto.new_hmac(seg_macs.key, self.mac_size_bits)
+                    hmac.update(fragment)
+                    seg_macs.hmacs.append(hmac)
         return n_segments
-
 
 class AppendingEncoder(Encoder):
 
@@ -283,6 +290,7 @@ class AppendingEncoder(Encoder):
         self.mapping_encoder.encode_segments(
             [first_segment], m, n, authorized_sets)
 
+        segment_id = 0
         for secret_segment in secret_data_segments:
             for aset in authorized_sets:
                 aset_id = aset['aset_id']
@@ -290,7 +298,8 @@ class AppendingEncoder(Encoder):
                         zip(aset['share_ids'],
                             crypto.split_secret(secret_segment, m))):
                     self.append(share_id, aset_id, fragment_id, fragment)
-                    self.macs[aset_id][fragment_id].hmac.update(fragment)
+                    hmac = self.macs[aset_id][fragment_id].hmacs[segment_id]
+                    hmac.update(fragment)
         # All data is appended onto 1 segment
         return 1
 
@@ -353,6 +362,7 @@ class TaggedDecoder(Decoder):
     def __init__(self, *, fragment_read_size=4096):
         self.fragment_read_size = fragment_read_size
         self.frags_by_segment = defaultdict(list)
+        self.loaded_macs = defaultdict(lambda: defaultdict(dict))
 
     def fragment_streams(self):
         """Return iterator over (handle, fragment_stream) pairs."""
@@ -376,9 +386,7 @@ class TaggedDecoder(Decoder):
             self.eprint("No share fragments discovered.")
 
     def ensure_segment_count(self, header):
-        if header.segment_count == 0:
-            self.throw(f"Error: Invalid segment_count=0 declared in: {handle}")
-        if self.segment_count == 0:
+        if not hasattr(self, 'segment_count'):
             self.segment_count = header.segment_count
         elif self.segment_count != header.segment_count:
             self.throw(
@@ -386,8 +394,22 @@ class TaggedDecoder(Decoder):
                 f"{self.segment_count} but got {header.segment_count} in "
                 f"{handle}")
 
+    def register_header(self, header, handle):
+        if isinstance(header, FragmentHeader):
+            self.ensure_segment_count(header)
+            # eprint(f"parsed header:", header.segment_id, header.aset_id, header.fragment_id)
+            self.frags_by_segment[header.segment_id].append(
+                TaggedFragment(header, handle))
+        elif isinstance(header, MacHeader):
+            aset_macs = self.loaded_macs[header.aset_id]
+            mac_parts = aset_macs[header.fragment_id]
+            mac_parts[header.part_id] = TaggedFragment(header, handle)
+        else:
+            self.eprint(
+                f"Warning: Unknown header type {type(header).__name__} in "
+                f"{handle}. Skipping.")
+
     def load(self):
-        self.segment_count = 0
         for handle, frag_stream in self.fragment_streams():
             header, frag_stream = Header.parse(frag_stream)
             if header is None:
@@ -398,18 +420,7 @@ class TaggedDecoder(Decoder):
                     self.eprint(f"Warning: Failed to parse header: {handle}. "
                                 "Skipping.")
                 continue
-            if isinstance(header, FragmentHeader):
-                self.ensure_segment_count(header)
-                # eprint(f"parsed header:", header.segment_id, header.aset_id, header.fragment_id)
-                self.frags_by_segment[header.segment_id].append(
-                    TaggedFragment(header, handle))
-            elif isinstance(header, MacHeader):
-                print("GOT MAC HEADER:", header)
-            else:
-                self.eprint(
-                    f"Warning: Unknown header type {type(header).__name__} in "
-                    f"{handle}. Skipping.")
-
+            self.register_header(header, handle)
         if not self.frags_by_segment:
             self.throw("Warning: No input found.")
 
@@ -423,7 +434,6 @@ class TaggedDecoder(Decoder):
                 self.throw(f"No segment for segment_id={segment_id}. "
                            f"Expected {self.segment_count} segments.")
             yield segment
-
 
     def validate_fragment_count(self, tagged_frag, expect_count):
         if tagged_frag.header.fragment_count == 0:

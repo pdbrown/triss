@@ -156,18 +156,21 @@ class QREncoder(FileSegmentEncoder):
 
     def summary(self, n_segments):
         super().summary(n_segments)
-        # Reserve space for MACs: 1 per share + 1 key for the current share
-        hmac_data_size_bytes = (self.n + 1) * self.mac_size_bits // 8
-        self.hmac_part_count = div_up(hmac_data_size_bytes,
-                                      QR_MAC_DATA_SIZE_BYTES)
-        self.n_parts = self.n_frag_parts + \
-            (self.hmac_part_count * self.asets_per_share)
+        n_frag_parts = self.n_segments * self.n_asets_per_share
+        # Reserve space for MACs. Per share, have:
+        # - MAC output for each aset in the share
+        # - MAC output has:
+        #   - 1 key
+        #   - 1 digest for each segment of each fragment
+        hmac_bytes = (1 + n_frag_parts) * (self.mac_size_bits // 8)
+        self.n_hmac_parts_per_share = div_up(hmac_bytes, QR_MAC_DATA_SIZE_BYTES)
+        self.n_parts_per_share = n_frag_parts + self.n_hmac_parts_per_share
         # Number of digits needed to print 1-based part number ordinals.
-        self.part_num_width = int(math.log10(self.n_parts)) + 1
+        self.part_num_width = int(math.log10(self.n_parts_per_share)) + 1
         self.part_numbers = defaultdict(int)
 
     def write_hmacs(self, share_id, header, aset_macs):
-        header.part_count = self.hmac_part_count
+        header.part_count = self.n_hmac_parts_per_share
         mac_stream = byte_streams.resize_seqs(
             QR_MAC_DATA_SIZE_BYTES,
             codec.aset_mac_byte_stream(header.fragment_id,
@@ -178,14 +181,14 @@ class QREncoder(FileSegmentEncoder):
             header.part_id = part_id
             data = header.to_bytes() + chunk
             subtitle = f"Share {share_id} - " \
-                f"Part {part_num}/{self.n_parts}\n" \
+                f"Part {part_num}/{self.n_parts_per_share}\n" \
                 f"Recover secret with {self.m} of {self.n} shares.\n" \
                 f"Require all parts of each share.\n" \
                 "--- Header Details ---\n" \
                 f"Version: {header.version}\n" \
                 f"HMAC key for Fragment: {header.fragment_id}\n" \
                 f"HMACs for Authorized Set: {header.aset_id}\n" \
-                f"HMAC Part: {part_id + 1}/{self.hmac_part_count}\n" \
+                f"HMAC Part: {part_id + 1}/{header.part_count}\n" \
                 f"Algorithm: {header.algorithm}"
             qr_encode(data, path, title=self.secret_name, subtitle=subtitle)
 
@@ -195,7 +198,7 @@ class QREncoder(FileSegmentEncoder):
 
         img_path = path.with_suffix(".png")
         subtitle = f"Share {share_id} - " \
-            f"Part {part_number}/{self.n_parts}\n" \
+            f"Part {part_number}/{self.n_parts_per_share}\n" \
             f"Recover secret with {self.m} of {self.n} shares.\n" \
             f"Require all parts of each share.\n" \
             "--- Header Details ---\n" \

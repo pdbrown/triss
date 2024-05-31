@@ -178,17 +178,17 @@ def num_asets_per_share(m, n):
     return math.comb(n - 1, m - 1)
 
 
-KeyedHmac = namedtuple(
-    "KeyedHmac", [
-        "algo",
-        "size",
-        "key",
-        "hmac"
-    ])
-
 DEFAULT_MAC_SIZE_BITS = 384
 
-def new_hmac(size_bits=DEFAULT_MAC_SIZE_BITS):
+def new_hmac_key(size_bits=DEFAULT_MAC_SIZE_BITS):
+    if size_bits not in [256, 384, 512]:
+        raise ValueError(f"Invalid size {size_bits}.")
+    return secrets.token_bytes(size_bits // 8)
+
+def hmac_algo_name(size_bits=DEFAULT_MAC_SIZE_BITS):
+    return f"sha{size_bits}"
+
+def new_hmac(key, size_bits=DEFAULT_MAC_SIZE_BITS):
     """
     Return new KeyedHmac of SIZE_BITS, the size in bits
 
@@ -196,8 +196,6 @@ def new_hmac(size_bits=DEFAULT_MAC_SIZE_BITS):
     """
     if size_bits not in [256, 384, 512]:
         raise ValueError(f"Invalid size {size_bits}.")
-    algo = f"sha{size_bits}"
-    key = secrets.token_bytes(size_bits // 8)
-    return KeyedHmac(algo, size_bits, key, hmac.new(key, digestmod=algo))
+    return hmac.new(key, digestmod=hmac_algo_name(size_bits))
 
 digests_equal = hmac.compare_digest

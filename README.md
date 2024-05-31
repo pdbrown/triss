@@ -303,6 +303,14 @@ theoretically secure.
 ```
 m=3 of n=5
 
+Segment 0:
+    share 0:  A1  B1  C1  D1  E1  F1
+    share 1:  A2  B2  C2               G1 H1 I1
+    share 2:  A3          D2  E2       G2 H2    J1
+    share 3:      B3      D3      F2   G3    I2 J2
+    share 4:          C3      E3  F3      H4 I3 J3
+
+Segment 1:
     share 0:  A1  B1  C1  D1  E1  F1
     share 1:  A2  B2  C2               G1 H1 I1
     share 2:  A3          D2  E2       G2 H2    J1

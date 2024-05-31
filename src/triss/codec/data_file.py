@@ -42,9 +42,11 @@ class FileSegmentEncoder(MappingEncoder):
     def summary(self, n_segments):
         super().summary(n_segments)
         # Add one extra part per aset to hold hmacs
-        self.n_parts = self.n_frag_parts + self.asets_per_share
+        n_frag_parts = self.n_segments * self.n_asets_per_share
+        n_hmac_parts = self.n_asets_per_share
+        self.n_parts_per_share = n_frag_parts + n_hmac_parts
         # Number of digits needed to print 1-based part number ordinals.
-        self.part_num_width = int(math.log10(self.n_parts)) + 1
+        self.part_num_width = int(math.log10(self.n_parts_per_share)) + 1
         self.part_numbers = defaultdict(int)
 
     def next_part_num_name(self, share_id):
@@ -52,7 +54,8 @@ class FileSegmentEncoder(MappingEncoder):
         n = self.part_numbers[share_id]
         # f-string: f"{3:05}" pads 3 with leading zeros to width 5: "00003"
         nf = f"{n:0{self.part_num_width}}"
-        return (n, f"share-{share_id}_part-{nf}_of_{self.n_parts}.dat")
+        return (n, f"share-{share_id}_part-{nf}_of_"
+                f"{self.n_parts_per_share}.dat")
 
     def write_hmacs(self, share_id, header, aset_macs):
         header.part_id = 0
