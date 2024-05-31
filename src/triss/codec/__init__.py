@@ -16,6 +16,7 @@ class Field:
         self.size = size
         if default is not None:
             self.default = default
+
     def __repr__(self):
         return f"{type(self).__name__}({self.name}, {self.size})"
 
@@ -70,6 +71,10 @@ class Header:
             # Assert values in range. get_bytes throws an OverflowError if
             # value is to big to convert.
             self.get_bytes(k)
+
+    def __repr__(self):
+        fields = [f"{k}={getattr(self, k)}" for k in self.FIELDS]
+        return f"{type(self).__name__}({', '.join(fields)})"
 
     def get_bytes(self, k):
         """Return value of field K as byte array."""
@@ -357,6 +362,10 @@ class Decoder:
 
 TaggedFragment = namedtuple("TaggedFragment", ["header", "handle"])
 
+def frag_header_keyfn(tagged_frag):
+    h = tagged_frag.header
+    return (h.aset_id, h.segment_id, h.fragment_id)
+
 class TaggedDecoder(Decoder):
 
     def __init__(self, *, fragment_read_size=4096):
@@ -372,27 +381,31 @@ class TaggedDecoder(Decoder):
         """Return iterator over fragment data chunks."""
         raise NotImplementedError()
 
-    def print_discovered_fragments(self):
+    def print_registered_headers(self):
         if self.frags_by_segment:
-            self.eprint("Share fragments discovered:")
-            for segment_id in sorted(self.frags_by_segment.keys()):
-                for tagged_frag in self.frags_by_segment[segment_id]:
-                    h = tagged_frag.header
-                    self.eprint(f"segment_id={h.segment_id}, "
-                                f"aset_id={h.aset_id}, "
-                                f"fragment_id={h.fragment_id}: "
-                                f"{tagged_frag.handle}")
+            self.eprint("Data fragments discovered:")
         else:
             self.eprint("No share fragments discovered.")
+        for tf in sorted(itertools.chain(*self.frags_by_segment.values()),
+                         key=frag_header_keyfn):
+            self.eprint(f"{tf.handle}: {tf.header}")
+
+        if self.loaded_macs:
+            self.eprint("HMACs discovered:")
+        else:
+            self.eprint("No HMACs discovered.")
+        for _aset_id, aset_macs in sorted(self.loaded_macs.items()):
+            for _fragment_id, mac_parts in sorted(aset_macs.items()):
+                for _part_id, tagged_frag in sorted(mac_parts.items()):
+                    self.eprint(f"{tagged_frag.handle}: {tagged_frag.header}")
 
     def ensure_segment_count(self, header):
         if not hasattr(self, 'segment_count'):
             self.segment_count = header.segment_count
         elif self.segment_count != header.segment_count:
-            self.throw(
-                f"Error: Inconsistent segment_count. Expected "
-                f"{self.segment_count} but got {header.segment_count} in "
-                f"{handle}")
+            self.load_error = f"Error: Inconsistent segment_count. Expected " \
+                f"{self.segment_count} but got {header.segment_count} in " \
+                f"{handle}"
 
     def register_header(self, header, handle):
         if isinstance(header, FragmentHeader):
@@ -410,6 +423,7 @@ class TaggedDecoder(Decoder):
                 f"{handle}. Skipping.")
 
     def load(self):
+        self.load_error = None
         for handle, frag_stream in self.fragment_streams():
             header, frag_stream = Header.parse(frag_stream)
             if header is None:
@@ -423,6 +437,9 @@ class TaggedDecoder(Decoder):
             self.register_header(header, handle)
         if not self.frags_by_segment:
             self.throw("Warning: No input found.")
+        if self.load_error:
+            self.print_registered_headers()
+            self.throw(load_error)
 
     def segments(self):
         """Yield lists of TaggedFragments, one list per segment."""
@@ -430,7 +447,7 @@ class TaggedDecoder(Decoder):
         for segment_id in range(self.segment_count):
             segment = self.frags_by_segment.get(segment_id)
             if not segment:
-                self.print_discovered_fragments()
+                self.print_registered_headers()
                 self.throw(f"No segment for segment_id={segment_id}. "
                            f"Expected {self.segment_count} segments.")
             yield segment
