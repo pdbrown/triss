@@ -69,7 +69,7 @@ def resize_seqs(chunk_size, byte_stream):
     iterable of byte sequences.
     """
     if chunk_size <= 0:
-        raise Exception("chunk_size must be > 0")
+        raise ValueError("chunk_size must be > 0")
 
     while True:
         try:

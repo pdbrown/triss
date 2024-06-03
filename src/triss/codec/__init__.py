@@ -444,7 +444,7 @@ class Decoder:
                             " Parsing failed with:")
                 print_exception(e)
         if not self.frags_by_segment:
-            raise Exception("Error: No input found.")
+            raise RuntimeError("Error: No input found.")
 
     def segments(self):
         """Yield lists of TaggedInputs, one list per segment."""

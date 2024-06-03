@@ -22,8 +22,8 @@ def fletchers_checksum_16(xs):
 
 def xor_bytes(xs, ys):
     if len(xs) != len(ys):
-        raise Exception("Refusing to xor byte strings of different length: "
-                        f"len(xs) = {len(xs)}, len(ys) = {len(ys)}.")
+        raise ValueError("Refusing to xor byte strings of different length: "
+                         f"len(xs) = {len(xs)}, len(ys) = {len(ys)}.")
     return bytes(b1 ^ b2 for b1, b2 in zip(xs, ys))
 
 
