@@ -13,7 +13,7 @@ import traceback
 
 from triss.byte_streams import resize_seqs
 from triss.codec import MacWarning, data_file
-from triss.util import ErrorMessage, eprint, iter_str, print_exception, verbose
+from triss.util import eprint, iter_str, print_exception, verbose
 
 try:
     # TODO FIXME !!!!!!!!! better test for this now separarte encode vs decode
@@ -77,13 +77,13 @@ def assert_byte_streams_equal(bs_x, bs_y, err_msg="Byte streams not equal!"):
 
     for (xs, ys) in zip(bs_x, bs_y):
         if xs != ys:
-            raise ErrorMessage(err_msg)
+            raise AssertionError(err_msg)
     for bs in [bs_x, bs_y]:
         try:
             next(bs)
             # Ensure byte seqs have same length. Should be empty so expect
             # StopIteration.
-            raise ErrorMessage(err_msg)
+            raise AssertionError(err_msg)
         except StopIteration:
             pass
 
@@ -93,11 +93,10 @@ def check_asets_combine(in_file, out_dir, m, input_format):
             f = Path(d) / "check_output"
             try:
                 do_combine(share_dirs, f, input_format)
-            except ErrorMessage as e:
-                eprint(e)
-                raise ErrorMessage(
+            except Exception as e:
+                raise AssertionError(
                     "Combine check failed! Unable to combine shares in " \
-                    f"{iter_str(share_dirs)}.")
+                    f"{iter_str(share_dirs)}.") from e
             if in_file:
                 assert_byte_streams_equal(
                     read_buffered(in_file),
@@ -123,9 +122,9 @@ def do_split(in_file, out_dir,
         if have_qrcode:
             encoder = qrcode.QREncoder(out_dir, secret_name)
         else:
-            raise ErrorMessage(f"QRCODE encoder is not available.")
+            raise RuntimeError(f"QRCODE encoder is not available.")
     else:
-        raise ErrorMessage(f"Unknown output format {output_format}.")
+        raise ValueError(f"Unknown output format {output_format}.")
 
     m = m or n
     encoder.encode(read_buffered(in_file), m, n)
@@ -181,7 +180,7 @@ def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
         if have_qrcode:
             mk_decoders = [qrcode.QRDecoder]
         else:
-            raise ErrorMessage(f"QRCODE decoder is not available.")
+            raise RuntimeError(f"QRCODE decoder is not available.")
     else:
         mk_decoders = TRY_DECODERS
 
@@ -209,4 +208,4 @@ def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
             if err:
                 eprint(err, end='')
 
-    raise ErrorMessage(f"Unable to decode data in {iter_str(dirs)}.")
+    raise RuntimeError(f"Unable to decode data in {iter_str(dirs)}.")

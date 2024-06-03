@@ -12,9 +12,6 @@ def verbose(v=None):
         _verbose = v
     return _verbose
 
-class ErrorMessage(Exception):
-    pass
-
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 

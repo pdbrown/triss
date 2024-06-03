@@ -4,7 +4,7 @@ from collections import defaultdict, namedtuple
 
 from triss import byte_streams
 from triss import crypto
-from triss.util import ErrorMessage, eprint, print_exception, verbose
+from triss.util import eprint, print_exception, verbose
 
 
 ################################################################################
@@ -197,10 +197,10 @@ class Encoder:
 
     def configure(self, m, n, mac_algorithm):
         if m < 2 or n < 2:
-            raise ErrorMessage("Must split into at least 2 shares.")
+            raise ValueError("Must split into at least 2 shares.")
         if m > n:
-            raise ErrorMessage("M cannot be larger than N for M-of-N split: "
-                               f"got M={m} of N={n}")
+            raise ValueError("M cannot be larger than N for M-of-N split: "
+                             f"got M={m} of N={n}")
         self.m = m
         self.n = n
         self.mac_algorithm = mac_algorithm
@@ -490,7 +490,7 @@ class Decoder:
             if self.is_complete_aset(aset, fragment_count):
                 return list(aset.values())
         segment_id = segment[0].header.segment_id
-        raise ErrorMessage(
+        raise RuntimeError(
             "Error: unable to find complete authorized set of size "
             f"{self.fragment_count} for segment {segment_id}")
 
@@ -636,7 +636,7 @@ class Decoder:
                 self.eprint(f"WARNING: {msg}" + (f": {cause}" if cause else ""))
             else:
                 self.eprint(f"Error: {msg}")
-                raise ErrorMessage(
+                raise RuntimeError(
                     f"{self.name}: ERROR: Unable to verify authenticity of "
                     "output. Aborting any remaining decoding process. Use "
                     "extreme caution handling any partial output, it "

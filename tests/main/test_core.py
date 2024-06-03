@@ -7,7 +7,6 @@ import shutil
 import random
 
 from triss import core
-from triss.util import ErrorMessage
 try:
     import triss.codec.qrcode
     have_qrcode = True
@@ -68,7 +67,7 @@ def test_qrcode(tmp_path):
 
 def test_missing_share(tmp_path):
     data = random.randbytes(2000)
-    with pytest.raises(ErrorMessage):
+    with pytest.raises(RuntimeError):
         do_split_combine(data, tmp_path, select_m_shares(1), m=2, n=3)
 
 def test_duplicate_fragment(tmp_path):

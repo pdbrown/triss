@@ -8,8 +8,6 @@ import math
 import re
 import secrets
 
-from triss.util import ErrorMessage
-
 def fletchers_checksum_16(xs):
     """
     Return 2 byte fletcher's checksum.
@@ -41,7 +39,7 @@ def split_secret(secret_bytes, n):
     returns all the keys and the pad."""
     n_keys = int(n) - 1
     if n_keys < 1:
-        raise ErrorMessage(
+        raise ValueError(
             "Refusing to return secret_bytes without splitting, require at least "
             "N=2 fragments. Check number of shares.")
 

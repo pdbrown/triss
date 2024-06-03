@@ -5,7 +5,7 @@ import argparse
 import sys
 
 from triss import core, util
-from triss.util import ErrorMessage, eprint, print_exception
+from triss.util import eprint, print_exception
 
 def cli():
     parser = argparse.ArgumentParser(
@@ -66,17 +66,16 @@ def cli():
         core.do_combine(args.in_dirs, args.o, args.c,
                         ignore_mac_error=args.DANGER_allow_invalid)
     else:
-        raise ErrorMessage(f"Invalid command: {args.command}")
+        raise ValueError(f"Invalid command: {args.command}")
 
 
 def main():
     try:
         cli()
         return 0
-    except ErrorMessage as e:
+    except Exception as e:
         print_exception(e)
         return 1
-    # And let all other Exception types throw their traceback to the top level.
 
 if __name__ == '__main__':
     sys.exit(main())

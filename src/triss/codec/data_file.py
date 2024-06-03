@@ -10,7 +10,7 @@ from pathlib import Path
 from triss import codec
 from triss.codec import FragmentHeader, MacHeader, \
     MappingEncoder, AppendingEncoder, Decoder
-from triss.util import ErrorMessage, eprint
+from triss.util import eprint
 
 def set_segment_count(path, segment_count):
     with path.open(mode='rb+') as f:

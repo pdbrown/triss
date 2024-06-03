@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 from triss import byte_streams, codec, crypto
 from triss.codec import FragmentHeader, MacHeader, Encoder
 from triss.codec.data_file import FileSegmentEncoder, FileDecoder
-from triss.util import ErrorMessage, eprint, div_up
+from triss.util import eprint, div_up
 
 mimetypes.init()
 
@@ -249,7 +249,7 @@ def qr_decode(path):
         return bytes()
     if proc.returncode != 0:
         eprint(proc.stderr.decode())
-        raise ErrorMessage(
+        raise RuntimeError(
             f"Error: Failed to scan QRCODE in {path}. Aborting.")
     # Check stderr status message, looks like:
     # scanned 1 barcode symbols from 1 images in 0 seconds
@@ -287,11 +287,11 @@ def ensure_prog(cmdline, reason):
     try:
         proc = subprocess.run(cmdline, capture_output=True)
     except FileNotFoundError as e:
-        raise ErrorMessage(
+        raise RuntimeError(
             f"The external program {prog} is required {reason} but is not "
             "available on the PATH.") from e
     if proc.returncode != 0:
         eprint(proc.stderr.decode())
-        raise ErrorMessage(
+        raise RuntimeError(
             f"The external program {prog} is required {reason}, but appears to "
             f"be broken. Try running: {' '.join(cmdline)}")
