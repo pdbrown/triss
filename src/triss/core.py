@@ -26,19 +26,17 @@ def python_version_check(args):
     """
     Assert python version.
 
-    Triss relies on dict behavior as of 3.7:
-    - Dictionary order is guaranteed to be insertion order
-    As of 3.10:
+    Important python features:
+    Version 3.7:
+    - CRITICAL! Dictionary order is guaranteed to be insertion order
+    Version 3.10:
     - traceback.print_exception(exc) now accepts an Exception as the first arg
-    (only used in verbose mode)
+      (only used in verbose mode)
+    Version 3.11:
+    - ExceptionGroup used to report header parse errors.
     """
-    if sys.version_info < (3, 7):
-        eprint("Error: Python version is too old. Need at least 3.7 but running:")
-        eprint(sys.version)
-        sys.exit(1)
-    if args.verbose and sys.version_info < (3, 10):
-        eprint("Error: Python version is too old. Need at least 3.10 in verbose "
-               "mode but running:")
+    if sys.version_info < (3, 11):
+        eprint("Error: Python version is too old. Need at least 3.11 but running:")
         eprint(sys.version)
         sys.exit(1)
 
@@ -111,11 +109,8 @@ def check_asets_combine(in_file, out_dir, m, input_format):
                "combined result.")
 
 
-
-def do_split(in_file, out_dir,
-             output_format=DEFAULT_FORMAT, m=2, n=2,
+def do_split(in_file, out_dir, output_format=DEFAULT_FORMAT, m=2, n=2,
              secret_name="Split secret", skip_combine_check=False):
-
     if output_format == 'DATA':
         encoder = data_file.FileEncoder(out_dir)
     elif output_format == 'QRCODE':
@@ -127,8 +122,11 @@ def do_split(in_file, out_dir,
         raise ValueError(f"Unknown output format {output_format}.")
 
     m = m or n
-    encoder.encode(read_buffered(in_file), m, n)
-
+    try:
+        encoder.encode(read_buffered(in_file), m, n)
+    except Exception as e:
+        raise Exception(
+            f"Failed to split secret in {output_format} format.") from e
     if not skip_combine_check:
         check_asets_combine(in_file, out_dir, m, output_format)
 

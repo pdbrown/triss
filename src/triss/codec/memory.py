@@ -5,28 +5,32 @@ from collections import defaultdict
 
 from triss.codec import MappingEncoder, Decoder
 
-
-# TODO redo with header dataclasses as hash keys
-
 class MemoryCodec(MappingEncoder, Decoder):
 
     def __init__(self):
-        self.store = []  # list of segments
-        self.store_segment = None
-        self.current_segment_id = None
+        Decoder.__init__(self)
+        self.parts = defaultdict(list)
         self.decoder_share_ids = None
-        self.macs = defaultdict(dict) # aset_id -> fragment_id -> aset_macs
 
     # Encoder impl
     def write(self, share_id, header, fragment):
-        if header.segment_id != self.current_segment_id:
-            self.current_segment_id = header.segment_id
-            self.store_segment = defaultdict(dict)
-            self.store.append(self.store_segment)
-        self.store_segment[share_id][header.aset_id] = (header, fragment)
+        data = header.to_bytes() + fragment
+        self.parts[share_id].append((header, data))
 
-    def write_hmacs(self, share_id, header, aset_macs):
-        self.macs[header.aset_id][header.fragment_id] = (header, aset_macs)
+    def write_macs(self, share_id, header, mac_data_stream):
+        self.write(share_id, header, b''.join(mac_data_stream))
+
+    def finalize(self, share_id, header):
+        new_part = None
+        for i, (h, data) in enumerate(self.parts[share_id]):
+            if (h.aset_id == header.aset_id and
+                h.segment_id == header.segment_id and
+                h.fragment_id == header.fragment_id):
+                hbs = header.to_bytes()
+                new_part = (h, hbs + data[len(hbs):])
+                break
+        if new_part:
+            self.parts[share_id][i] = new_part
 
     # Decoder impl
     def use_authorized_set(self, share_ids):
@@ -35,29 +39,12 @@ class MemoryCodec(MappingEncoder, Decoder):
     def input_streams(self):
         if self.decoder_share_ids is None:
             raise Exception("Call use_authorized_set first");
-        for segment in self.store:
-            frags = []
-            for share_id in self.decoder_share_ids:
-                for aset_id, (header, fragment) in segment[share_id].items():
-                    frags.append((aset_id, fragment))
-            yield frags
+        for share_id in self.decoder_share_ids:
+            for part_id, (header, data) in enumerate(self.parts[share_id]):
+                yield((share_id, part_id), [data])
 
-
-    def segments(self):
-        if self.decoder_share_ids is None:
-            raise Exception("Call use_authorized_set first");
-        for segment in self.store:
-            frags = []
-            for share_id in self.decoder_share_ids:
-                for aset_id, fragment in segment[share_id].items():
-                    frags.append((aset_id, fragment))
-            yield frags
-
-    def authorized_set(self, segment):
-        frags = defaultdict(list)
-        for (aset_id, fragment) in segment:
-            aset_frags = frags[aset_id]
-            aset_frags.append(fragment)
-            if len(aset_frags) == self.m:
-                return aset_frags
-        return None
+    def payload_stream(self, tagged_input):
+        header, handle = tagged_input
+        share_id, part_id = handle
+        data = self.parts[share_id][part_id][1]
+        return [data[header.size_bytes():]]

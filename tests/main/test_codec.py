@@ -27,7 +27,7 @@ def test_fragment_header():
     assert h.segment_count == 3
     assert h.fragment_id == 4
     assert h.fragment_count == 5
-    assert h.version == FragmentHeader.VERSION
+    assert h.version == FragmentHeader.__fields__['version'].default
     assert h.tag == b'trissfrag'
 
     h_bytes = h.to_bytes()
@@ -67,7 +67,6 @@ def test_file_encoder_decoder(tmp_path):
     encoder.encode(data, m, n)
     for aset in itertools.permutations(range(n), m):
         shares = [tmp_path / f"share-{i}" for i in aset]
-        print(shares)
         decoder = FileDecoder(shares)
         assert list(resize_seqs(3, decoder.decode())) == data_out
 
@@ -83,21 +82,3 @@ def test_qr_encoder_decoder(tmp_path):
         shares = [tmp_path / f"share-{i}" for i in aset]
         decoder = QRDecoder(shares)
         assert list(decoder.decode()) == data_out
-
-# @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
-# def test_qr_encoder_decoder_large_mac(tmp_path):
-#     encoder = QREncoder(tmp_path, "test secret")
-#     data = [b'asdf', b'qwer']
-
-#     # Make enough splits to force hmac data onto at least 2 qrcodes.
-#     hmac_hash_function = "sha512"
-#     mac_size_bits = 512
-#     mac_size_bytes = 512 // 8
-#     n = (QR_MAC_DATA_SIZE_BYTES // mac_size_bytes) + 1
-#     m = n
-#     encoder.encode(data, m, n, hmac_algorithm=hmac_algorithm)
-
-#     shares = tmp_path.iterdir()
-#     decoder = QRDecoder(shares)
-#     data_out = [b'asdfqwer']
-#     assert list(decoder.decode()) == data_out

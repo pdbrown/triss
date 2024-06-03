@@ -178,6 +178,10 @@ def num_asets_per_share(m, n):
 
 
 DEFAULT_ALGORITHM = "hmac-sha384"
+# Allow up to 64KB of key material. Set a limit to prevent overflow errors
+# constructing hmac objects. Typical keys are usually the same size as the MAC
+# digest, e.g. 48 bytes (384 bits) for hmac-sha384.
+MAX_KEY_SIZE = 64 * 1024
 
 @functools.lru_cache
 def digest_size_bytes(algo):
@@ -199,15 +203,15 @@ def new_mac(key, algo=DEFAULT_ALGORITHM):
 
     of both the secret key and the digest.
     """
-    if not algo.startswith("hmac-"):
-        raise ValueError("Unsupported MAC algorithm. Triss only supports HMAC "
-                         "so algorithm name should start with 'hmac-' but "
-                         f"got '{algo}'")
-    digestmod = re.sub('^hmac-', '', algo.lower())
     if len(key) < digest_size_bytes(algo):
         raise ValueError(
             f"MAC key is too short: got {len(key)} bytes but require at least "
             f"{digest_size_bytes(algo)} for {algo}.")
+    if len(key) > MAX_KEY_SIZE:
+        raise ValueError(
+            f"MAC key is too big: got {len(key)} bytes but max size is "
+            f"{MAX_KEY_SIZE}")
+    digestmod = re.sub('^hmac-', '', algo.lower())
     return hmac.new(key, digestmod=digestmod)
 
 digests_equal = hmac.compare_digest

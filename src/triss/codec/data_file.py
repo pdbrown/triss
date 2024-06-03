@@ -58,8 +58,6 @@ class FileSegmentEncoder(MappingEncoder):
                 f"{self.n_parts_per_share}.dat")
 
     def write_macs(self, share_id, header, mac_data_stream):
-        header.part_id = 0
-        header.part_count = 1
         _, name = self.next_part_num_name(share_id)
         path = self.share_dir(share_id) / name
         with path.open(mode='wb') as f:

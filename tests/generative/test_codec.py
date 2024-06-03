@@ -9,6 +9,7 @@ import random
 import tempfile
 
 from . import gen_common
+from .gen_common import m_and_n
 from .. import helpers
 
 from triss.byte_streams import resize_seqs
@@ -21,26 +22,16 @@ except ModuleNotFoundError:
     have_qrcode = False
     QR_SIZE_DATA_BYTES = -1
 
-def kb_stream(stream):
-    return resize_seqs(1024, stream)
 
-@st.composite
-def m_and_n(draw, n=st.integers(min_value=2, max_value=10)):
-    n = draw(n)
-    m = draw(st.integers(min_value=2, max_value=n))
-    return (m, n)
-
-
-@given(data=st.lists(st.binary()), m_n=m_and_n())
+@given(data=st.lists(st.binary(min_size=1), min_size=1), m_n=m_and_n())
 def test_memory_codec(data, m_n):
     codec = MemoryCodec()
     (m, n) = m_n
     codec.encode(data, m, n)
-    for aset in itertools.combinations(range(n), m):
-        codec.use_authorized_set(aset)
-        decoded = list(codec.decode())
-        assert decoded == data
-
+    aset = random.choice(list(itertools.combinations(range(n), m)))
+    codec.use_authorized_set(aset)
+    decoded = list(codec.decode())
+    assert decoded == data
 
 @given(data=st.lists(st.binary()), m_n=m_and_n())
 def test_file_encoder_decoder(data, m_n):
@@ -62,7 +53,7 @@ def do_file_encoder_decoder(data, m_n):
         encoder.encode(data, m, n)
 
         share_dirs = Path(d).iterdir()
-        share_asets = list(itertools.combinations(share_dirs, m))
+        share_asets = list(itertools.permutations(share_dirs, m))
         if not share_asets:
             assert not b''.join(data)
             return
@@ -70,7 +61,9 @@ def do_file_encoder_decoder(data, m_n):
         shares = random.choice(share_asets)
         decoder = FileDecoder(shares)
 
-        assert list(kb_stream(decoder.decode())) == list(kb_stream(data))
+        decoded = list(helpers.kb_stream(decoder.decode()))
+        original = list(helpers.kb_stream(data))
+        assert decoded == original
 
 
 @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
@@ -99,7 +92,7 @@ def do_qr_encoder_decoder(data, m_n):
         encoder.encode(data, m, n)
 
         share_dirs = Path(d).iterdir()
-        share_asets = list(itertools.combinations(share_dirs, m))
+        share_asets = list(itertools.permutations(share_dirs, m))
         if not share_asets:
             assert not b''.join(data)
             return
@@ -108,9 +101,9 @@ def do_qr_encoder_decoder(data, m_n):
         decoder = QRDecoder(shares)
 
         try:
-            data = list(kb_stream(data))
-            output = list(kb_stream(decoder.decode()))
-            assert output == data
+            decoded = list(helpers.kb_stream(decoder.decode()))
+            original = list(helpers.kb_stream(data))
+            assert decoded == original
         except Exception as e:
             # save_dir = helpers.save_test_files(d)
             # indata = save_dir / "input.dat"

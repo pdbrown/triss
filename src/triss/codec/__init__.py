@@ -13,9 +13,6 @@ from triss.util import eprint, print_exception, verbose
 ################################################################################
 # Header
 
-
-# TODO dataclasses! consider frozen=True
-
 class Field:
     def __init__(self, name, size, default=None):
         """
@@ -62,11 +59,6 @@ class StrField(BytesField):
         return super().generate(s.encode("utf-8"))
 
 class Header:
-    @classmethod
-    def size_bytes(cls):
-        # Length of all fields + 2 bytes for checksum.
-        return sum(field.size for field in cls.FIELDS.values()) + 2
-
     def __init__(self, **info):
         """
         Construct Header given INFO kwargs.
@@ -74,54 +66,66 @@ class Header:
         INFO holds header data as typed objects (not just byte arrays), and is
         keyed by field names. Retrieve header bytes with get_bytes or to_bytes.
         """
-        for k in self.FIELDS:
-            v = info.get(k, self.FIELDS[k].default)
+        for k in self.__fields__:
+            v = info.get(k, self.__fields__[k].default)
             setattr(self, k, v)
             # Assert values in range. get_bytes throws an OverflowError if
             # value is to big to convert.
             self.get_bytes(k)
 
     def __repr__(self):
-        fields = [f"{k}={getattr(self, k)}" for k in self.FIELDS]
+        fields = [f"{k}={getattr(self, k)}" for k in self.__fields__]
         return f"{type(self).__name__}({', '.join(fields)})"
+
+    def __iter__(self):
+        for k in self.__fields__:
+            yield getattr(self, k)
 
     def get_bytes(self, k):
         """Return value of field K as byte array."""
         v = getattr(self, k)
-        return self.FIELDS[k].generate(v)
+        return self.__fields__[k].generate(v)
 
     def to_bytes(self):
         """Return header as byte array."""
         data = bytes(itertools.chain.from_iterable(
-            [self.get_bytes(f) for f in self.FIELDS]))
+            [self.get_bytes(k) for k in self.__fields__]))
         return data + crypto.fletchers_checksum_16(data)
+
+    @classmethod
+    def size_bytes(cls):
+        # Length of all fields + 2 bytes for checksum.
+        return sum(field.size for field in cls.__fields__.values()) + 2
 
     @classmethod
     def from_bytes(cls, data):
         """Parse byte array DATA and return instance of Header."""
         size = cls.size_bytes()
         if len(data) < size:
-            raise ValueError(f"Can't parse header, got {len(data)} bytes but "
-                             f"needed {size} bytes.")
+            raise ValueError(
+                f"{cls.__name__}: Can't parse header, got {len(data)} bytes but "
+                f"needed {size} bytes.")
         data = data[0:size]
         checksum = bytes(data[-2:])  # last 2 bytes are checksum
         payload = bytes(data[0:-2])  # first n-2 bytes are payload
         if crypto.fletchers_checksum_16(payload) != checksum:
-            raise ValueError("Refusing to parse header with bad checksum.")
+            raise ValueError(
+                f"{cls.__name__}: Refusing to parse header with bad checksum.")
         info = {}
         i = 0
-        for k, field in cls.FIELDS.items():
+        for k, field in cls.__fields__.items():
             info[k] = field.parse(payload[i:i+field.size])
             i += field.size
-        tag = cls.FIELDS['tag'].default
+        tag = cls.__fields__['tag'].default
         if info['tag'] != tag:
             raise ValueError(
-                f"Header tag is not {tag}: is this a triss file?")
-        version = cls.FIELDS['version'].default
+                f"{cls.__name__}: Header tag is not {tag.decode('utf-8')}: is "
+                "this a triss file?")
+        version = cls.__fields__['version'].default
         if info['version'] != version:
             raise ValueError(
-                f"Incompatible header version, got {info['version']}' but "
-                f"expected {version}")
+                f"{cls.__name__}: Incompatible header version, got "
+                f"{info['version']} but expected {version}")
         return cls(**info)
 
     @staticmethod
@@ -152,8 +156,7 @@ class Header:
 
 
 class FragmentHeader(Header):
-    VERSION = 1
-    FIELDS = fields_by_name(
+    __fields__ = fields_by_name(
         BytesField("tag", 9, b'trissfrag'),
         IntField("version", 1, 1),
         IntField("aset_id", 4),
@@ -163,8 +166,7 @@ class FragmentHeader(Header):
         IntField("fragment_count", 4))
 
 class MacHeader(Header):
-    VERSION = 1
-    FIELDS = fields_by_name(
+    __fields__ = fields_by_name(
         BytesField("tag", 8, b'trissmac'),
         IntField("version", 2, 1),
         IntField("aset_id", 4),
@@ -173,7 +175,7 @@ class MacHeader(Header):
         # Store macs for all fragments of all segments in order of ids
         IntField("segment_count", 4),
         IntField("fragment_count", 4),
-        # May need to split MAC data into multiple parts (in QRCODE mode).
+        # May need to split MAC data into multiple "slices" (in QRCODE mode).
         # Analagous to "segments" in FragmentHeader, but don't reuse that name.
         IntField("part_id", 4),
         IntField("part_count", 4),
@@ -182,13 +184,6 @@ class MacHeader(Header):
 
 
 KeyedMacs = namedtuple("KeyedMacs", ["key", "macs"])
-
-def aset_mac_byte_stream(fragment_id, aset_macs, n_segments):
-    yield aset_macs[fragment_id].key
-    for segment_id in range(n_segments):
-        for fragment_macs in aset_macs:
-            mac = fragment_macs.macs[segment_id]
-            yield mac.digest()
 
 
 ################################################################################
@@ -229,6 +224,15 @@ class Encoder:
     def finalize(self, share_id, header):
         pass
 
+    # Helpers
+    def aset_mac_byte_stream(self, aset_id, fragment_id, n_segments):
+        aset_macs = self.macs[aset_id]
+        yield aset_macs[fragment_id].key
+        for segment_id in range(n_segments):
+            for fragment_macs in aset_macs:
+                mac = fragment_macs.macs[segment_id]
+                yield mac.digest()
+
     # Entrypoint
     def encode(self, secret_data_segments, m, n, *,
                mac_algorithm=DEFAULT_MAC_ALGORITHM):
@@ -248,9 +252,11 @@ class Encoder:
                               fragment_id=fragment_id,
                               segment_count=n_segments,
                               fragment_count=m,
+                              part_id=0,
+                              part_count=1,
                               key_size_bytes=self.mac_key_size_bytes,
                               algorithm=self.mac_algorithm),
-                    aset_mac_byte_stream(fragment_id, self.macs[aset_id], n_segments))
+                    self.aset_mac_byte_stream(aset_id, fragment_id, n_segments))
                 for segment_id in range(n_segments):
                     self.finalize(
                         share_id,
@@ -366,14 +372,10 @@ class Decoder:
     def __init__(self, *, fragment_read_size=4096):
         self.fragment_read_size = fragment_read_size
         self.name = type(self).__name__
-
-
         # segment_id -> [TaggedInput]
         self.frags_by_segment = defaultdict(list)
-
         # aset_id -> fragment_id -> part_id -> TaggedInput
         self.mac_parts = defaultdict(lambda: defaultdict(dict))
-
         # aset_id -> segment_id -> [LoadedMac] in fragment_id order
         self.loaded_macs = defaultdict(dict)
 
@@ -398,10 +400,11 @@ class Decoder:
         if self.frags_by_segment:
             self.eprint("Found data fragments:")
         else:
-            self.eprint("No share fragments discovered.")
-        for tf in sorted(itertools.chain(*self.frags_by_segment.values()),
-                         key=frag_header_keyfn):
-            self.eprint(f"{tf.handle}: {tf.header}")
+            self.eprint("No data fragments discovered.")
+        for header, handle in sorted(
+                itertools.chain(*self.frags_by_segment.values()),
+                key=frag_header_keyfn):
+            self.eprint(f"{handle}: {header}")
 
         if self.mac_parts:
             self.eprint("Found MAC inputs:")
@@ -409,20 +412,26 @@ class Decoder:
             self.eprint("No MACs discovered.")
         for _aset_id, aset_macs in sorted(self.mac_parts.items()):
             for _fragment_id, mac_parts in sorted(aset_macs.items()):
-                for _part_id, tagged_input in sorted(mac_parts.items()):
-                    self.eprint(f"{tagged_input.handle}: {tagged_input.header}")
+                for _part_id, (header, handle) in sorted(mac_parts.items()):
+                    self.eprint(f"{handle}: {header}")
+
+    @staticmethod
+    def validate_header_attr(tagged_input, attr, expect):
+        header, handle = tagged_input
+        attr_val = getattr(header, attr)
+        if attr_val != expect:
+            raise ValueError(
+                f"Inconsistent {attr}. Expected {expect} but got {attr_val} "
+                f"in header of {handle}: {header}")
 
     def ensure_segment_count(self, header, handle):
         if not hasattr(self, 'segment_count'):
             if header.segment_count == 0:
-                raise ValueError(f"Error: Invalid segment_count=0 in header "
-                                 f"of {handle}: {header}")
+                raise ValueError(
+                    f"Invalid segment_count=0 in header of {handle}: {header}")
             self.segment_count = header.segment_count
-        elif self.segment_count != header.segment_count:
-            raise ValueError(
-                f"Error: Inconsistent segment_count. Expected "
-                f"{self.segment_count} but got {header.segment_count} "
-                f"in hearder of {handle}: {header}")
+        self.validate_header_attr((header, handle), 'segment_count',
+                                  self.segment_count)
 
     def register_header(self, header, handle):
         if isinstance(header, FragmentHeader):
@@ -435,7 +444,7 @@ class Decoder:
             fragment_macs[header.part_id] = TaggedInput(header, handle)
         else:
             raise ValueError(
-                f"Warning: Unknown header type {type(header).__name__}.")
+                f"Unknown header type {type(header).__name__}.")
 
     def load(self):
         for handle, input_stream in self.input_streams():
@@ -447,7 +456,7 @@ class Decoder:
                             " Parsing failed with:")
                 print_exception(e)
         if not self.frags_by_segment:
-            raise RuntimeError("Error: No input found.")
+            raise RuntimeError("No input found.")
 
     def segments(self):
         """Yield lists of TaggedInputs, one list per segment."""
@@ -457,19 +466,9 @@ class Decoder:
                 segment = self.frags_by_segment[segment_id]
             except KeyError as e:
                 raise ValueError(
-                    f"No segment for segment_id={segment_id}. Expected "
+                    f"Missing segment for {segment_id=}. Expected "
                     f"{self.segment_count} segments.") from e
             yield segment
-
-    def validate_fragment_count(self, tagged_input, expect_count):
-        if tagged_input.header.fragment_count == 0:
-            raise ValueError(f"Error: Invalid fragment_count=0 declared in: "
-                             f"{tagged_input.handle}")
-        if tagged_input.header.fragment_count != expect_count:
-            raise ValueError(
-                f"Error: Inconsistent fragment_count. Expected "
-                f"{expect_count} but got {tagged_input.header.fragment_count} "
-                f"in {tagged_input.handle}")
 
     def is_complete_aset(self, aset, fragment_count):
         if len(aset) != fragment_count:
@@ -477,25 +476,30 @@ class Decoder:
         for i in range(fragment_count):
             if not aset.get(i):
                 self.eprint(
-                    f"Warning: found aset of correct size {fragment_count}"
-                    f", but it is missing fragment_id={i}")
+                    f"Found authorized set of correct size {fragment_count}, "
+                    f"but it is missing fragment_id={i}")
                 return False
         return True
 
-    def authorized_set(self, segment):
+    def authorized_set(self, segment_id, segment):
         """Return sequence of tagged fragments of an authorized set."""
         asets = defaultdict(dict)
+        if not segment:
+            raise ValueError(
+                f"Segment {segment_id=} is empty (contains no fragments), so "
+                "it's impossible to find an authorized set of fragments to "
+                "decrypt it.")
         fragment_count = segment[0].header.fragment_count
         for tagged_input in segment:
-            self.validate_fragment_count(tagged_input, fragment_count)
+            self.validate_header_attr(tagged_input, 'fragment_count',
+                                      fragment_count)
             aset = asets[tagged_input.header.aset_id]
             aset[tagged_input.header.fragment_id] = tagged_input
             if self.is_complete_aset(aset, fragment_count):
                 return list(aset.values())
-        segment_id = segment[0].header.segment_id
         raise RuntimeError(
-            "Error: unable to find complete authorized set of size "
-            f"{self.fragment_count} for segment {segment_id}")
+            f"Unable to find complete authorized set of size {fragment_count} "
+            f"for segment {segment_id=}")
 
     def fragments(self, authorized_set):
         input_streams = [
@@ -515,28 +519,25 @@ class Decoder:
 
     def validate_mac_header(self, tagged_input, fragment_count, part_count):
         header, handle = tagged_input
-        if header.segment_count != self.segment_count:
+        self.validate_header_attr(tagged_input, 'segment_count',
+                                  self.segment_count)
+        self.validate_header_attr(tagged_input, 'fragment_count',
+                                  fragment_count)
+        self.validate_header_attr(tagged_input, 'part_count', part_count)
+        key_size = header.key_size_bytes
+        if key_size > crypto.MAX_KEY_SIZE:
             raise ValueError(
-                f"Inconsistent MAC header segment count. Have "
-                f"{self.segment_count} but header of {handle} "
-                f"indicates there should be {header.segment_count} segments: "
+                f"Unable to construct MAC for algorithm {header.algorithm} "
+                f"with key of size {key_size}, key is to big, max size is "
+                f"{crypto.MAX_KEY_SIZE}. Requested in header of {handle}: "
                 f"{header}")
-        if header.fragment_count != fragment_count:
-            raise ValueError(
-                f"Inconsistent MAC header fragment count. Have "
-                f"{fragment_count} but header of {handle} indicates "
-                f"there should be {header.fragment_count} fragments: {header}")
-        if header.part_count != part_count:
-            raise ValueError(
-                f"Inconsistent MAC header part count. Have {part_count} but "
-                f"header of {first_part.handle} indicates there should be "
-                f"{header.part_count} parts: {header}")
         try:
-            crypto.new_mac(b'\0' * header.key_size_bytes, header.algorithm)
+            crypto.new_mac(b'\0' * key_size, header.algorithm)
         except Exception as e:
             raise ValueError(
                 f"Unable to construct MAC for algorithm {header.algorithm} "
-                f"requested by header: {header}") from e
+                f"with key of size {key_size} requested in header of {handle}:"
+                f" {header}") from e
 
     def concat_mac_parts(self, mac_parts, aset_id, fragment_id, fragment_count):
         # mac_parts is dict: {part_id: part}
@@ -547,7 +548,7 @@ class Decoder:
             except KeyError as e:
                 raise ValueError(
                     f"Missing MAC part {part_id+1}/{part_count} for fragment "
-                    f"{fragment_id} of authorized set {aset_id}") from e
+                    f"{fragment_id=} of authorized set {aset_id=}") from e
             self.validate_mac_header(part, fragment_count, part_count)
         header0 = mac_parts[0].header
         payload = b''
@@ -573,7 +574,7 @@ class Decoder:
             self.eprint(
                 f"Warning: Finished reading {cursor} bytes of MAC digest data "
                 f"for {self.segment_count} segments of all {fragment_count} "
-                f"fragments of authorized set aset_id={aset_id}, but had "
+                f"fragments of authorized set {aset_id=}, but had "
                 f"{len(mac_data)} bytes available and expected to read all "
                 "bytes.")
 
@@ -581,8 +582,8 @@ class Decoder:
         def ensure_mac_count(macs):
             if len(macs) != fragment_count:
                 raise ValueError(
-                    f"Expected a MAC for each of {fragment_count} "
-                    f"fragments but got {len(macs)} instead.")
+                    f"Expected a MAC for each of {fragment_count} fragments "
+                    f"but got {len(macs)} instead.")
             return macs
 
         try:
@@ -593,15 +594,17 @@ class Decoder:
             aset_macs = self.mac_parts[aset_id]
         except KeyError as e:
             raise ValueError(
-                f"No MACs available for authorized set {aset_id}") from e
+                f"No MACs available for authorized set {aset_id=}") from e
 
         def fragment_mac_info(fragment_id):
             try:
                 mac_parts = aset_macs[fragment_id]
             except KeyError as e:
+                mac_parts = []
+            if not mac_parts:
                 raise ValueError(
-                    f"No MACs available for fragment {fragment_id} of "
-                    f"authorized set {aset_id}") from e
+                    f"No MAC key or digests available for {fragment_id=} of "
+                    f"authorized set {aset_id=}")
             # mac_data holds key for macs of aset contributed by (the share that
             # has the fragment) fragment_id, and MAC digests for all segments
             # of all fragments of the aset.
@@ -619,18 +622,18 @@ class Decoder:
             (header, key, mac_data) = fragment_mac_info(fragment_id)
             if mac_data != mac_data0:
                 raise ValueError(
-                    f"Invalid MAC data for fragment_id={fragment_id} of "
-                    f"authorized set aset_id={aset_id} in segment_id="
-                    f"{segment_id}. Each share received an identical copy of "
-                    "the MACs computed for each (segment of) each fragment of "
-                    "the authorized set, but the copy of the MACs assigned to "
-                    "(the share of) the reported fragment does not match the "
-                    "others.")
+                    f"Invalid MAC data for {fragment_id=} of authorized set "
+                    f"{aset_id=} in {segment_id=}. Each share received an "
+                    "identical copy of the MACs computed for each segment of "
+                    "each fragment of the authorized set, but the copy of the "
+                    "MACs assigned to the share of the reported fragment does "
+                    "not match the others.")
             infos.append((header, key))
         self.index_macs(infos, mac_data0, fragment_count, aset_id)
         return ensure_mac_count(self.loaded_macs[aset_id][segment_id])
 
-    def combine_fragments(self, authorized_set, ignore_mac_error=False):
+    def combine_fragments(self, authorized_set, segment_id,
+                          ignore_mac_error=False):
         macs_valid = True
         def mac_error(msg, cause=None):
             nonlocal macs_valid
@@ -645,19 +648,24 @@ class Decoder:
                     "extreme caution handling any partial output, it "
                     "may have been modified by an attacker.") from cause
 
+        if not authorized_set:
+            raise ValueError(
+                "Authorized is empty (contains no fragments), so it's impossible "
+                "to find an authorized set of fragments to decrypt it.")
+
         # While fragments of authorized_set can be combined in any order, MACs
         # are loaded in fragment_id order. Sort fragments the same way so
         # zip(fragments, macs) pairs each fragment with the matching MAC.
         authorized_set = sorted(authorized_set,
                                 key=lambda tf: tf.header.fragment_id)
-        h = authorized_set[0].header
+        aset_id = authorized_set[0].header.aset_id
         try:
-            loaded_macs = self.load_macs(h.aset_id, h.segment_id,
+            loaded_macs = self.load_macs(aset_id, segment_id,
                                          len(authorized_set))
         except Exception as e:
             mac_error(
-                "Failed to load MACs while decoding segment "
-                f"{h.segment_id} with authorized set {h.aset_id}",
+                f"Failed to load MACs while decoding segment {segment_id=} "
+                f"with authorized set {aset_id=}",
                 cause=e)
             loaded_macs = []
 
@@ -673,19 +681,18 @@ class Decoder:
             if not crypto.digests_equal(loaded_mac.digest,
                                         computed_mac.digest()):
                 mac_error(
-                    f"MAC digest mismatch for fragment_id={fragment_id} of "
-                    f"segment_id={h.segment_id} with authorized set "
-                    f"aset_id={h.aset_id}")
+                    f"MAC digest mismatch for {fragment_id=} of {segment_id=} "
+                    f"authorized set {aset_id=}")
         return macs_valid
 
     # Entrypoint
     def decode(self, ignore_mac_error=False):
         macs_valid = True
         self.load()
-        for segment in self.segments():
-            authorized_set = self.authorized_set(segment)
-            ret = yield from self.combine_fragments(authorized_set,
-                                                    ignore_mac_error)
+        for segment_id, segment in enumerate(self.segments()):
+            authorized_set = self.authorized_set(segment_id, segment)
+            ret = yield from self.combine_fragments(
+                authorized_set, segment_id, ignore_mac_error)
             macs_valid = ret and macs_valid
         if not macs_valid:
             raise MacWarning()

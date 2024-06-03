@@ -56,15 +56,14 @@ def do_qrencode(data, path):
 
     if proc.returncode < 0:
         # Then terminated by signal
-        eprint(f"Warning: qrencode terminated by signal {proc.returncode} "
-               f"while writing qrcode to {path}.")
-        return False
+        raise RuntimeError(
+            f"qrencode terminated by signal {proc.returncode} while writing "
+            f"qrcode to {path}.")
     if proc.returncode != 0:
         eprint(proc.stdout.decode())
         eprint(proc.stderr.decode())
-        eprint(f"Warning: qrencode failed with error writing to {path}.")
-        return False
-    return True
+        raise RuntimeError(
+            f"qrencode failed with error writing to {path}.")
 
 def load_image(path):
     # Read image data into img, then close img_path keeping img in memory.
@@ -89,6 +88,7 @@ def pad_vertical(img):
     return out
 
 def find_font(size):
+    size = int(size)
     for font in TRY_FONTS:
         try:
             return ImageFont.truetype(font, size)
@@ -103,7 +103,12 @@ def font_height(font, text, spacing=4):
         (0, 0), text, font=font, spacing=spacing)
     return bottom - top
 
-def add_caption(img, title, subtitle=""):
+def add_xy(pos, incr):
+    pos_x, pos_y = pos
+    incr_x, incr_y = incr
+    return (pos_x + incr_x, pos_y + incr_y)
+
+def add_caption(img, title, subtitle="", body=""):
     # Resize images so text has constant size regardless of the qrcode IMG
     # size.
     spacing = 6
@@ -112,19 +117,25 @@ def add_caption(img, title, subtitle=""):
     # width of version 40 qr code
     w = (qr_v40_modules + 2 * QR_BORDER) * QR_BOX_SIZE
     title_font = find_font(6 * QR_BOX_SIZE)
-    body_font = find_font(4 * QR_BOX_SIZE)
+    subtitle_font = find_font(4 * QR_BOX_SIZE)
+    body_font = find_font(2.5 * QR_BOX_SIZE)
     title_h = font_height(title_font, title, spacing=spacing)
-    body_h = font_height(body_font, subtitle, spacing=spacing)
-    y_margin = 3 * spacing
-    h = title_h + body_h + 2 * y_margin
-    h = int(h * 1)
+    subtitle_h = font_height(subtitle_font, subtitle, spacing=spacing)
+    body_h = font_height(body_font, body, spacing=spacing)
+    y_margin = 6 * spacing
+    h = MARGIN + title_h + subtitle_h + body_h + 3 * y_margin
     capt = Image.new('RGBA', (w, h), 'white')
     d = ImageDraw.Draw(capt)
-    line_y = h - 1
-    d.line(((MARGIN, line_y), (w - MARGIN, line_y)), 'gray')
-    d.text((20, 0), title, fill='black', font=title_font, spacing=spacing)
+    cursor = (MARGIN, MARGIN)  # top-left corner of layout
+    d.text(cursor, title, fill='black', font=title_font, spacing=spacing)
+    cursor = add_xy(cursor, (0, title_h + y_margin))
     if subtitle:
-        d.text((30, title_h + y_margin), subtitle, fill='black', font=body_font, spacing=spacing)
+        d.text(cursor, subtitle, fill='black', font=subtitle_font, spacing=spacing)
+        cursor = add_xy(cursor, (0, subtitle_h + y_margin))
+    if body:
+        d.text(cursor, body, fill='black', font=body_font, spacing=spacing)
+    line_y = h - 1  # bottom of image
+    d.line(((MARGIN, line_y), (w - MARGIN, line_y)), 'gray')
 
     captioned = merge_img_y(capt, img)
     # Add enough vertical padding to make image square so it prints in portrait
@@ -132,12 +143,11 @@ def add_caption(img, title, subtitle=""):
     return pad_vertical(captioned)
 
 
-def qr_encode(data, path, *, title=None, subtitle=None):
-    if not do_qrencode(data, path):
-        return None
+def qr_encode(data, path, *, title="", subtitle="", body=""):
+    do_qrencode(data, path)
     img = load_image(path)
     if title:
-        img = add_caption(img, title, subtitle)
+        img = add_caption(img, title, subtitle, body)
     img.save(path)
     return img
 
@@ -156,22 +166,25 @@ class QREncoder(FileSegmentEncoder):
 
     def summary(self, n_segments):
         super().summary(n_segments)
-        n_frag_parts = self.n_segments * self.n_asets_per_share
+        n_frag_parts = n_segments * self.n_asets_per_share
         # Reserve space for MACs. Per share, have:
         # - MAC output for each aset in the share
         # - MAC output has:
         #   - 1 key
         #   - 1 digest for each segment of each fragment
-        mac_bytes = (1 + n_frag_parts) * \
-            crypto.digest_size_bytes(self.mac_algorithm)
-        self.n_mac_parts_per_share = div_up(mac_bytes, QR_MAC_DATA_SIZE_BYTES)
-        self.n_parts_per_share = n_frag_parts + self.n_mac_parts_per_share
+        aset_mac_bytes = (self.mac_key_size_bytes +
+                          n_segments * self.m *
+                          crypto.digest_size_bytes(self.mac_algorithm))
+        self.n_mac_parts_per_aset = div_up(aset_mac_bytes,
+                                           QR_MAC_DATA_SIZE_BYTES)
+        n_mac_parts = self.n_mac_parts_per_aset * self.n_asets_per_share
+        self.n_parts_per_share = n_frag_parts + n_mac_parts
         # Number of digits needed to print 1-based part number ordinals.
         self.part_num_width = int(math.log10(self.n_parts_per_share)) + 1
         self.part_numbers = defaultdict(int)
 
     def write_macs(self, share_id, header, mac_data_stream):
-        header.part_count = self.n_mac_parts_per_share
+        header.part_count = self.n_mac_parts_per_aset
         mac_data_stream = byte_streams.resize_seqs(
             QR_MAC_DATA_SIZE_BYTES, mac_data_stream)
         for part_id, chunk in enumerate(mac_data_stream):
@@ -182,14 +195,15 @@ class QREncoder(FileSegmentEncoder):
             subtitle = f"Share {share_id} - " \
                 f"Part {part_num}/{self.n_parts_per_share}\n" \
                 f"Recover secret with {self.m} of {self.n} shares.\n" \
-                f"Require all parts of each share.\n" \
-                "--- Header Details ---\n" \
-                f"Version: {header.version}\n" \
-                f"MAC key for Fragment: {header.fragment_id}\n" \
-                f"MACs for Authorized Set: {header.aset_id}\n" \
-                f"MAC Part: {part_id + 1}/{header.part_count}\n" \
+                f"Require all parts of each share."
+            body = "==== Part Details ====\n" \
+                f"{type(header).__name__} version: {header.version}\n" \
+                f"MACs for Authorized Set aset_id={header.aset_id}\n" \
+                f"MAC key for fragment_id={header.fragment_id}\n" \
+                f"MAC Slice: {part_id + 1}/{header.part_count}\n" \
                 f"MAC Algorithm: {header.algorithm}"
-            qr_encode(data, path, title=self.secret_name, subtitle=subtitle)
+            qr_encode(data, path, title=self.secret_name, subtitle=subtitle,
+                      body=body)
 
     def post_process(self, share_id, header, part_number, path):
         with path.open('rb') as f:
@@ -199,14 +213,15 @@ class QREncoder(FileSegmentEncoder):
         subtitle = f"Share {share_id} - " \
             f"Part {part_number}/{self.n_parts_per_share}\n" \
             f"Recover secret with {self.m} of {self.n} shares.\n" \
-            f"Require all parts of each share.\n" \
-            "--- Header Details ---\n" \
-            f"Version: {header.version}\n" \
+            f"Require all parts of each share."
+        body = "==== Part Details ====\n" \
+            f"{type(header).__name__} version: {header.version}\n" \
+            f"Authorized Set aset_id={header.aset_id}\n" \
             f"Segment: {header.segment_id + 1}/{header.segment_count}\n" \
-            f"Authorized Set: {header.aset_id}\n" \
             f"Fragment: {header.fragment_id + 1}/{header.fragment_count}"
 
-        qr_encode(data, img_path, title=self.secret_name, subtitle=subtitle)
+        qr_encode(data, img_path, title=self.secret_name, subtitle=subtitle,
+                  body=body)
         path.unlink()
 
 
@@ -219,7 +234,7 @@ def qr_decode(path):
     #    Disable all decoders, then reenable only qrcode decoder
     #    If any other decoders are enabled, they occasionally detect spurious
     #    barcodes within the pattern of some qrcodes (about 1 / 100 times for
-    #    ~50 data byte qrcodes).
+    #    random ~50 data byte qrcodes).
     # --raw
     #    Don't prefix qrcode data with a url scheme qrcode:$DATA.
     # -Sbinary

@@ -22,7 +22,6 @@ except ModuleNotFoundError:
 def test_qrencode_decode(xs, title, subtitle, tmp_path):
     f = tmp_path / "img.png"
     img = qrcode.qr_encode(xs, f, title=title, subtitle=subtitle)
-    assert img is not None
     decoded = qrcode.qr_decode(f)
     try:
         assert decoded == xs

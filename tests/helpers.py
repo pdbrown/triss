@@ -4,6 +4,9 @@
 from pathlib import Path
 import subprocess
 
+from triss import byte_streams
+from triss.util import eprint
+
 
 def save_test_files(temporary_dir):
     """
@@ -15,7 +18,16 @@ def save_test_files(temporary_dir):
     function is a useful debugging aid.
     """
     save_dir = subprocess.check_output(['mktemp', '-d']).decode().strip()
-    print(subprocess.check_output(
-        ['rsync', '-av', temporary_dir, save_dir]).decode())
+    try:
+        subprocess.check_output(['rsync', '-a', temporary_dir, save_dir],
+                                stderr=subprocess.STDOUT).decode()
+    except subprocess.CalledProcessError as e:
+        eprint(f"Failed to save test files with: {' '.join(e.cmd)}")
+        eprint(f"Exit status: {e.returncode}")
+        if e.output:
+            eprint(f"Output: {e.output}")
     print("Saved test files to", save_dir)
     return Path(save_dir)
+
+def kb_stream(stream):
+    return byte_streams.resize_seqs(1024, stream)
