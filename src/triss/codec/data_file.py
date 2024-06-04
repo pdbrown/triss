@@ -66,13 +66,11 @@ class FileSegmentEncoder(MappingEncoder):
                 f.write(chunk)
 
     def finalize(self, share_id, header):
-        # eprint(f"finalize: seg {segment_id}, aset: {aset_id}, share: {share_id}, frag: {fragment_id}")
         path = self.file_path(share_id, header)
         set_segment_count(path, self.n_segments)
         part_number, part_name = self.next_part_num_name(share_id)
         new_path = path.parent / part_name
         os.replace(path, new_path)
-        # eprint(f"rename: {path} -> {new_path}")
         self.post_process(share_id, header, part_number, new_path)
 
     def post_process(self, share_id, header, part_number, path):

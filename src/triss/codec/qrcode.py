@@ -193,16 +193,16 @@ class QREncoder(FileSegmentEncoder):
             path = (self.share_dir(share_id) / name).with_suffix(".png")
             header.part_id = part_id
             data = header.to_bytes() + chunk
-            subtitle = f"Share {share_id} - " \
-                f"Part {part_num}/{self.n_parts_per_share}\n" \
-                f"Recover secret with {self.m} of {self.n} shares.\n" \
-                f"Require all parts of each share."
-            body = "==== Part Details ====\n" \
-                f"{type(header).__name__} version: {header.version}\n" \
-                f"MACs for Authorized Set aset_id={header.aset_id}\n" \
-                f"MAC key for fragment_id={header.fragment_id}\n" \
-                f"MAC Slice: {part_id + 1}/{header.part_count}\n" \
-                f"MAC Algorithm: {header.algorithm}"
+            subtitle = (f"Share {share_id} - "
+                        f"Part {part_num}/{self.n_parts_per_share}\n"
+                        f"Recover secret with {self.m} of {self.n} shares.\n"
+                f"Require all parts of each share.")
+            body = ("==== Part Details ====\n"
+                    f"{type(header).__name__} version: {header.version}\n"
+                    f"MACs for Authorized Set aset_id={header.aset_id}\n"
+                    f"MAC key for fragment_id={header.fragment_id}\n"
+                    f"MAC Slice: {part_id + 1}/{header.part_count}\n"
+                    f"MAC Algorithm: {header.algorithm}")
             qr_encode(data, path, title=self.secret_name, subtitle=subtitle,
                       body=body)
 
@@ -211,15 +211,15 @@ class QREncoder(FileSegmentEncoder):
             data = f.read()
 
         img_path = path.with_suffix(".png")
-        subtitle = f"Share {share_id} - " \
-            f"Part {part_number}/{self.n_parts_per_share}\n" \
-            f"Recover secret with {self.m} of {self.n} shares.\n" \
-            f"Require all parts of each share."
-        body = "==== Part Details ====\n" \
-            f"{type(header).__name__} version: {header.version}\n" \
-            f"Authorized Set aset_id={header.aset_id}\n" \
-            f"Segment: {header.segment_id + 1}/{header.segment_count}\n" \
-            f"Fragment: {header.fragment_id + 1}/{header.fragment_count}"
+        subtitle = (f"Share {share_id} - "
+                    f"Part {part_number}/{self.n_parts_per_share}\n"
+                    f"Recover secret with {self.m} of {self.n} shares.\n"
+                    f"Require all parts of each share.")
+        body = ("==== Part Details ====\n"
+                f"{type(header).__name__} version: {header.version}\n"
+                f"Authorized Set aset_id={header.aset_id}\n"
+                f"Segment: {header.segment_id + 1}/{header.segment_count}\n"
+                f"Fragment: {header.fragment_id + 1}/{header.fragment_count}")
 
         qr_encode(data, img_path, title=self.secret_name, subtitle=subtitle,
                   body=body)
@@ -257,8 +257,8 @@ def qr_decode(path):
                f"while attempting to read QRCODE in {path}. Skipping it.")
         return bytes()
     imagemagick_error = proc.returncode == 2
-    bad_file_format = proc.returncode == 1 and \
-        re.search(r'no decode delegate', proc.stderr.decode())
+    bad_file_format = (proc.returncode == 1 and
+                       re.search(r'no decode delegate', proc.stderr.decode()))
     if imagemagick_error or bad_file_format:
         eprint(f"Warning: unable to read file as QRCODE image: {path}. "
                "Skipping it.")
@@ -274,7 +274,7 @@ def qr_decode(path):
     # Want 1 qrcode per (1) image
     if m.group(1) != '1' or m.group(2) != '1':
         eprint(proc.stderr.decode())
-        eprint(f"Warning: Got unexpected number of QRCODEs in {path}. " \
+        eprint(f"Warning: Got unexpected number of QRCODEs in {path}. "
                "Skipping it.")
         return bytes()
     return proc.stdout

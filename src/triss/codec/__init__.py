@@ -284,9 +284,7 @@ class MappingEncoder(Encoder):
         n_segments = 0
         for segment_id, secret_segment in enumerate(secret_data_segments):
             n_segments += 1
-            # eprint(f"Segment: {segment_id}")
             for aset in authorized_sets:
-                # eprint(f"  Aset: {aset}")
                 aset_id = aset['aset_id']
                 for fragment_id, (share_id, fragment) in enumerate(
                         zip(aset['share_ids'],

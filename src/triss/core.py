@@ -86,7 +86,7 @@ def assert_byte_streams_equal(bs_x, bs_y, err_msg="Byte streams not equal!"):
         except StopIteration:
             pass
 
-def check_asets_combine(in_file, out_dir, m, input_format):
+def assert_all_authorized_sets_combine(in_file, out_dir, m, input_format):
     with tempfile.TemporaryDirectory() as d:
         for share_dirs in authorized_share_sets(out_dir, m):
             f = Path(d) / "check_output"
@@ -94,19 +94,19 @@ def check_asets_combine(in_file, out_dir, m, input_format):
                 do_combine(share_dirs, f, input_format)
             except Exception as e:
                 raise AssertionError(
-                    "Combine check failed! Unable to combine shares in " \
+                    "Combine check failed! Unable to combine shares in "
                     f"{iter_str(share_dirs)}.") from e
             if in_file:
                 assert_byte_streams_equal(
                     read_buffered(in_file),
                     read_buffered(f),
-                    err_msg="Combine check failed! Result of combining " \
-                            "shares is not equal to original input.")
+                    err_msg=("Combine check failed! Result of combining "
+                             "shares is not equal to original input."))
             f.unlink()
 
     if not in_file:
-        eprint("Warning: Requested combine-check after splitting, but data " \
-               "was provided on stdin, so can't confirm integrity of " \
+        eprint("Warning: Requested combine-check after splitting, but data "
+               "was provided on stdin, so can't confirm integrity of "
                "combined result.")
 
 
@@ -129,7 +129,7 @@ def do_split(in_file, out_dir, output_format=DEFAULT_FORMAT, m=2, n=2,
         raise Exception(
             f"Failed to split secret in {output_format} format.") from e
     if not skip_combine_check:
-        check_asets_combine(in_file, out_dir, m, output_format)
+        assert_all_authorized_sets_combine(in_file, out_dir, m, output_format)
 
 
 def try_decode(mk_decoder, dirs, out_file, ignore_mac_error):
@@ -188,7 +188,7 @@ def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
         # Don't interfere with stderr
         cm = contextlib.nullcontext(None)
     else:
-        # Suppress stderr, only print it if not successful.
+        # Suppress stderr, only print it if none of the decoders ar successful.
         cm = contextlib.redirect_stderr(io.StringIO())
     try:
         with cm as captured_err:
