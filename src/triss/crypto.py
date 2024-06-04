@@ -212,6 +212,6 @@ def new_mac(key, algo=DEFAULT_ALGORITHM):
             f"MAC key is too big: got {len(key)} bytes but max size is "
             f"{MAX_KEY_SIZE}")
     digestmod = re.sub('^hmac-', '', algo.lower())
-    return hmac.new(key, digestmod=digestmod)
+    return hmac.new(bytes(key), digestmod=digestmod)
 
 digests_equal = hmac.compare_digest

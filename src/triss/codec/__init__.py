@@ -610,6 +610,7 @@ class Decoder:
             # and MAC digests for all segments of all fragments of the aset.
             (header, data) = self.concat_mac_parts(
                 mac_parts, aset_id, fragment_id, fragment_count)
+            data = memoryview(data)
             key = data[0:header.key_size_bytes]
             mac_data = data[header.key_size_bytes:]
             return (header, key, mac_data)
