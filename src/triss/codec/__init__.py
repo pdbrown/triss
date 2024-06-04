@@ -10,7 +10,7 @@ from triss import crypto
 from triss.util import eprint, print_exception, verbose
 
 
-################################################################################
+###############################################################################
 # Header
 
 class Field:
@@ -45,7 +45,8 @@ class BytesField(Field):
     def generate(self, data):
         if len(data) > self.size:
             raise ValueError(
-                f"Got {len(data)} bytes, which is too many to generate {self}.")
+                f"Got {len(data)} bytes, which is too many to generate "
+                f"{self}.")
         zpadding = b'\0' * (self.size - len(data))
         return data + zpadding
         return data
@@ -103,8 +104,8 @@ class Header:
         size = cls.size_bytes()
         if len(data) < size:
             raise ValueError(
-                f"{cls.__name__}: Can't parse header, got {len(data)} bytes but "
-                f"needed {size} bytes.")
+                f"{cls.__name__}: Can't parse header, got {len(data)} bytes "
+                f"but needed {size} bytes.")
         data = data[0:size]
         checksum = bytes(data[-2:])  # last 2 bytes are checksum
         payload = bytes(data[0:-2])  # first n-2 bytes are payload
@@ -186,7 +187,7 @@ class MacHeader(Header):
 KeyedMacs = namedtuple("KeyedMacs", ["key", "macs"])
 
 
-################################################################################
+###############################################################################
 # Encoder
 
 class Encoder:
@@ -256,7 +257,8 @@ class Encoder:
                               part_count=1,
                               key_size_bytes=self.mac_key_size_bytes,
                               algorithm=self.mac_algorithm),
-                    self.aset_mac_byte_stream(aset_id, fragment_id, n_segments))
+                    self.aset_mac_byte_stream(aset_id, fragment_id,
+                                              n_segments))
                 for segment_id in range(n_segments):
                     self.finalize(
                         share_id,
@@ -353,7 +355,7 @@ class AppendingEncoder(Encoder):
 
 
 
-################################################################################
+###############################################################################
 # Decoder
 
 class MacWarning(Exception):
@@ -539,7 +541,8 @@ class Decoder:
                 f"with key of size {key_size} requested in header of {handle}:"
                 f" {header}") from e
 
-    def concat_mac_parts(self, mac_parts, aset_id, fragment_id, fragment_count):
+    def concat_mac_parts(self, mac_parts, aset_id, fragment_id,
+                         fragment_count):
         # mac_parts is dict: {part_id: part}
         part_count = len(mac_parts)
         for part_id in range(part_count):
@@ -605,9 +608,8 @@ class Decoder:
                 raise ValueError(
                     f"No MAC key or digests available for {fragment_id=} of "
                     f"authorized set {aset_id=}")
-            # mac_data holds key for macs of aset contributed by (the share that
-            # has the fragment) fragment_id, and MAC digests for all segments
-            # of all fragments of the aset.
+            # data holds key for MAC digests of all segments of fragment_id,
+            # and MAC digests for all segments of all fragments of the aset.
             (header, data) = self.concat_mac_parts(
                 mac_parts, aset_id, fragment_id, fragment_count)
             key = data[0:header.key_size_bytes]
@@ -639,7 +641,8 @@ class Decoder:
             nonlocal macs_valid
             macs_valid = False
             if ignore_mac_error:
-                self.eprint(f"WARNING: {msg}" + (f": {cause}" if cause else ""))
+                self.eprint(
+                    f"WARNING: {msg}" + (f": {cause}" if cause else ""))
             else:
                 self.eprint(f"Error: {msg}")
                 raise RuntimeError(
@@ -650,8 +653,9 @@ class Decoder:
 
         if not authorized_set:
             raise ValueError(
-                "Authorized is empty (contains no fragments), so it's impossible "
-                "to find an authorized set of fragments to decrypt it.")
+                "Authorized is empty (contains no fragments), so it's "
+                "impossible to find an authorized set of fragments to decrypt "
+                "it.")
 
         # While fragments of authorized_set can be combined in any order, MACs
         # are loaded in fragment_id order. Sort fragments the same way so

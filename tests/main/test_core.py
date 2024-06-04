@@ -62,7 +62,8 @@ def test_data(tmp_path):
 @pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
 def test_qrcode(tmp_path):
     data = random.randbytes(100)
-    do_split_combine(data, tmp_path, select_m_shares(2), fmt='QRCODE', m=2, n=3)
+    do_split_combine(data, tmp_path, select_m_shares(2), fmt='QRCODE',
+                     m=2, n=3)
 
 
 def test_missing_share(tmp_path):
@@ -72,8 +73,10 @@ def test_missing_share(tmp_path):
 
 def test_duplicate_fragment(tmp_path):
     data = random.randbytes(2000)
-    do_split_combine(data, tmp_path, select_m_shares_and_duplicate_fragment(2), m=2, n=3)
+    do_split_combine(data, tmp_path, select_m_shares_and_duplicate_fragment(2),
+                     m=2, n=3)
 
 def test_ignore_corrupted_fragment(tmp_path):
     data = random.randbytes(2000)
-    do_split_combine(data, tmp_path, select_m_shares_and_corrupt_fragment(2), m=2, n=3)
+    do_split_combine(data, tmp_path, select_m_shares_and_corrupt_fragment(2),
+                     m=2, n=3)

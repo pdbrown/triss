@@ -18,7 +18,8 @@ except ModuleNotFoundError:
 @given(xs=st.binary(min_size=1, max_size=QR_SIZE_MAX_BYTES),
        title=st.text(),
        subtitle=st.text())
-@settings(max_examples=500, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(max_examples=500,
+          suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_qrencode_decode(xs, title, subtitle, tmp_path):
     f = tmp_path / "img.png"
     img = qrcode.qr_encode(xs, f, title=title, subtitle=subtitle)

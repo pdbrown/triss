@@ -130,7 +130,8 @@ def add_caption(img, title, subtitle="", body=""):
     d.text(cursor, title, fill='black', font=title_font, spacing=spacing)
     cursor = add_xy(cursor, (0, title_h + y_margin))
     if subtitle:
-        d.text(cursor, subtitle, fill='black', font=subtitle_font, spacing=spacing)
+        d.text(cursor, subtitle, fill='black', font=subtitle_font,
+               spacing=spacing)
         cursor = add_xy(cursor, (0, subtitle_h + y_margin))
     if body:
         d.text(cursor, body, fill='black', font=body_font, spacing=spacing)
@@ -308,5 +309,5 @@ def ensure_prog(cmdline, reason):
     if proc.returncode != 0:
         eprint(proc.stderr.decode())
         raise RuntimeError(
-            f"The external program {prog} is required {reason}, but appears to "
-            f"be broken. Try running: {' '.join(cmdline)}")
+            f"The external program {prog} is required {reason}, but appears "
+            f"to be broken. Try running: {' '.join(cmdline)}")

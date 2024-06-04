@@ -40,8 +40,8 @@ def split_secret(secret_bytes, n):
     n_keys = int(n) - 1
     if n_keys < 1:
         raise ValueError(
-            "Refusing to return secret_bytes without splitting, require at least "
-            "N=2 fragments. Check number of shares.")
+            "Refusing to return secret_bytes without splitting, require at "
+            "least N=2 fragments. Check number of shares.")
 
     one_time_pad = list(secret_bytes)
     k = len(one_time_pad)

@@ -36,7 +36,8 @@ def python_version_check(args):
     - ExceptionGroup used to report header parse errors.
     """
     if sys.version_info < (3, 11):
-        eprint("Error: Python version is too old. Need at least 3.11 but running:")
+        eprint(
+            "Error: Python version is too old. Need at least 3.11 but ""have:")
         eprint(sys.version)
         sys.exit(1)
 
