@@ -6,16 +6,13 @@ import pytest
 import itertools
 from pathlib import Path
 
+from .. import helpers
+
 from triss.byte_streams import resize_seqs
-from triss.codec import Header, FragmentHeader, MacHeader, MacWarning
+from triss.codec import Header, FragmentHeader, MacHeader, MacWarning, qrcode
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder
-try:
-    import triss.codec.qrcode as qrcode
-    from triss.codec.qrcode import QREncoder, QRDecoder
-    have_qrcode = True
-except ModuleNotFoundError:
-    have_qrcode = False
+from triss.codec.qrcode import QREncoder, QRDecoder
 
 def test_hmac_512(tmp_path):
     algo = "hmac-sha512"
@@ -69,7 +66,7 @@ def test_invalid_mac(tmp_path):
         assert list(resize_seqs(4, decoder.decode())) == data
 
 
-@pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
+@pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
 def test_multiple_mac_slices(tmp_path, monkeypatch):
     # Shrink QR codes to force splitting MAC over multiple slices with smaller
     # test case.

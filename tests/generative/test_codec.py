@@ -8,20 +8,14 @@ from pathlib import Path
 import random
 import tempfile
 
+from .. import helpers
 from . import gen_common
 from .gen_common import m_and_n
-from .. import helpers
 
 from triss.byte_streams import resize_seqs
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder
-try:
-    from triss.codec.qrcode import QR_DATA_SIZE_BYTES, QREncoder, QRDecoder
-    have_qrcode = True
-except ModuleNotFoundError:
-    have_qrcode = False
-    QR_SIZE_DATA_BYTES = -1
-
+from triss.codec.qrcode import QREncoder, QRDecoder
 
 @given(data=st.lists(st.binary(min_size=1), min_size=1), m_n=m_and_n())
 def test_memory_codec(data, m_n):
@@ -66,7 +60,7 @@ def do_file_encoder_decoder(data, m_n):
         assert decoded == original
 
 
-@pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
+@pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
 @given(data=st.lists(st.binary(max_size=3000)),
        m_n=m_and_n(n=st.integers(min_value=2, max_value=4)))
 @settings(max_examples=10, deadline=60000)
@@ -78,7 +72,7 @@ def test_qr_encoder_decoder(data, m_n):
     do_qr_encoder_decoder(data, m_n)
 
 
-@pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
+@pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
 @given(data=st.lists(st.binary(max_size=50)),
        m_n=m_and_n(n=st.integers(min_value=3, max_value=8)))
 @settings(max_examples=10, deadline=60000)

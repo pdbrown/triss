@@ -6,12 +6,9 @@ import pytest
 import shutil
 import random
 
+from .. import helpers
+
 from triss import core
-try:
-    import triss.codec.qrcode
-    have_qrcode = True
-except ModuleNotFoundError:
-    have_qrcode = False
 
 def select_m_shares(m):
     def fn(share_dir):
@@ -59,7 +56,7 @@ def test_data(tmp_path):
     data = random.randbytes(16000)
     do_split_combine(data, tmp_path, select_m_shares(2), fmt='DATA', m=2, n=3)
 
-@pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
+@pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
 def test_qrcode(tmp_path):
     data = random.randbytes(100)
     do_split_combine(data, tmp_path, select_m_shares(2), fmt='QRCODE',

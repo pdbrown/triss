@@ -103,10 +103,10 @@ def font_height(font, text, spacing=4):
         (0, 0), text, font=font, spacing=spacing)
     return bottom - top
 
-def add_xy(pos, incr):
-    pos_x, pos_y = pos
-    incr_x, incr_y = incr
-    return (pos_x + incr_x, pos_y + incr_y)
+def add_xy(pos, dxdy):
+    x, y = pos
+    dx, dy = dxdy
+    return (x + dx, y + dy)
 
 def add_caption(img, title, subtitle="", body=""):
     # Resize images so text has constant size regardless of the qrcode IMG

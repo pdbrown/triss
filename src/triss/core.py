@@ -14,13 +14,7 @@ import traceback
 from triss.byte_streams import resize_seqs
 from triss.codec import MacWarning, data_file
 from triss.util import eprint, iter_str, print_exception, verbose
-
-try:
-    # TODO FIXME !!!!!!!!! better test for this now separarte encode vs decode
-    from triss.codec import qrcode
-    have_qrcode = True
-except ModuleNotFoundError:
-    have_qrcode = False
+from triss.codec import qrcode
 
 def python_version_check(args):
     """
@@ -42,9 +36,7 @@ def python_version_check(args):
         sys.exit(1)
 
 DEFAULT_FORMAT='DATA'
-TRY_DECODERS = [data_file.FileDecoder]
-if have_qrcode:
-    TRY_DECODERS.append(qrcode.QRDecoder)
+TRY_DECODERS = [data_file.FileDecoder, qrcode.QRDecoder]
 
 
 def open_input(path):
@@ -115,10 +107,7 @@ def do_split(in_file, out_dir, output_format=DEFAULT_FORMAT, m=2, n=2,
     if output_format == 'DATA':
         encoder = data_file.FileEncoder(out_dir)
     elif output_format == 'QRCODE':
-        if have_qrcode:
-            encoder = qrcode.QREncoder(out_dir, secret_name)
-        else:
-            raise RuntimeError(f"QRCODE encoder is not available.")
+        encoder = qrcode.QREncoder(out_dir, secret_name)
     else:
         raise ValueError(f"Unknown output format {output_format}.")
 
@@ -176,10 +165,7 @@ def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
     if input_format == 'DATA':
         mk_decoders = [data_file.FileDecoder]
     elif input_format == 'QRCODE':
-        if have_qrcode:
-            mk_decoders = [qrcode.QRDecoder]
-        else:
-            raise RuntimeError(f"QRCODE decoder is not available.")
+        mk_decoders = [qrcode.QRDecoder]
     else:
         mk_decoders = TRY_DECODERS
 

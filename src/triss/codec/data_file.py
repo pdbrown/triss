@@ -98,7 +98,7 @@ class FileEncoder(AppendingEncoder):
 
 class FileDecoder(Decoder):
 
-    CHUNK_SIZE = 4096
+    CHUNK_SIZE = 4096 * 16
 
     def __init__(self, in_dirs, *, file_extension="dat", **opts):
         super().__init__(**opts)

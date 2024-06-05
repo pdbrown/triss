@@ -4,17 +4,13 @@
 import pytest
 from hypothesis import example, given, settings, strategies as st, HealthCheck
 
+from .. import helpers
 from . import gen_common
 
-try:
-    from triss.codec import qrcode
-    from triss.codec.qrcode import QR_SIZE_MAX_BYTES
-    have_qrcode = True
-except ModuleNotFoundError:
-    have_qrcode = False
-    QR_SIZE_MAX_BYTES = -1
+from triss.codec import qrcode
+from triss.codec.qrcode import QR_SIZE_MAX_BYTES
 
-@pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
+@pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
 @given(xs=st.binary(min_size=1, max_size=QR_SIZE_MAX_BYTES),
        title=st.text(),
        subtitle=st.text())

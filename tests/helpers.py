@@ -6,7 +6,15 @@ import subprocess
 
 from triss import byte_streams
 from triss.util import eprint
+from triss.codec import qrcode
 
+
+try:
+    QREncoder(".", "dummy")
+    QRDecoder(["."])
+    HAVE_QRCODE = True
+except Exception:
+    HAVE_QRCODE = False
 
 def save_test_files(temporary_dir):
     """

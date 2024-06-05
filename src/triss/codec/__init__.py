@@ -369,7 +369,7 @@ def frag_header_keyfn(tagged_input):
 
 class Decoder:
 
-    def __init__(self, *, fragment_read_size=4096):
+    def __init__(self, *, fragment_read_size=(4096*16)):
         self.fragment_read_size = fragment_read_size
         self.name = type(self).__name__
         # segment_id -> [TaggedInput]

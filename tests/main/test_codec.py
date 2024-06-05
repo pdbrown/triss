@@ -6,17 +6,13 @@ import pytest
 import itertools
 from pathlib import Path
 
+from .. import helpers
+
 from triss.byte_streams import resize_seqs
 from triss.codec import Header, FragmentHeader
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder
-try:
-    from triss.codec.qrcode import QREncoder, QRDecoder, QR_MAC_DATA_SIZE_BYTES
-    have_qrcode = True
-except ModuleNotFoundError:
-    have_qrcode = False
-    QR_MAC_DATA_SIZE_BYTES = 0
-
+from triss.codec.qrcode import QREncoder, QRDecoder
 
 def test_fragment_header():
     h = FragmentHeader(aset_id=1,
@@ -70,7 +66,7 @@ def test_file_encoder_decoder(tmp_path):
         decoder = FileDecoder(shares)
         assert list(resize_seqs(3, decoder.decode())) == data_out
 
-@pytest.mark.skipif(not have_qrcode, reason="qrcode is not installed")
+@pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
 def test_qr_encoder_decoder(tmp_path):
     data = [b'asdf', b'qwer']
     data_out = [b'asdfqwer']

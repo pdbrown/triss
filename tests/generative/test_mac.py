@@ -17,14 +17,7 @@ from triss.byte_streams import resize_seqs
 from triss.codec import Header, IntField, StrField
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder
-try:
-    from triss.codec.qrcode import QR_DATA_SIZE_BYTES, QREncoder, QRDecoder
-    have_qrcode = True
-except ModuleNotFoundError:
-    have_qrcode = False
-    QR_SIZE_DATA_BYTES = -1
-
-
+from triss.codec.qrcode import QR_DATA_SIZE_BYTES, QREncoder, QRDecoder
 
 def flip_bit(shares):
     share = random.choice(shares)
