@@ -10,8 +10,8 @@ from triss.codec import qrcode
 
 
 try:
-    QREncoder(".", "dummy")
-    QRDecoder(["."])
+    qrcode.QREncoder(".", "dummy")
+    qrcode.QRDecoder(["."])
     HAVE_QRCODE = True
 except Exception:
     HAVE_QRCODE = False

@@ -54,10 +54,10 @@ class BytesField(Field):
 class StrField(BytesField):
     default = ""
     def parse(self, data):
-        return super().parse(data).decode("utf-8").rstrip("\0")
+        return super().parse(data).decode('utf-8').rstrip("\0")
 
     def generate(self, s):
-        return super().generate(s.encode("utf-8"))
+        return super().generate(s.encode('utf-8'))
 
 class Header:
     def __init__(self, **info):

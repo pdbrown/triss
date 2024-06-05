@@ -121,16 +121,16 @@ def do_split(in_file, out_dir, output_format=DEFAULT_FORMAT, m=2, n=2,
         assert_all_authorized_sets_combine(in_file, out_dir, m, output_format)
 
 
-def try_decode(mk_decoder, dirs, out_file, ignore_mac_error):
+def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
     """
     Try to decode. Return False on error, or tuple of (True, print_errors)
 
     where print_errors is a boolean.
     """
     try:
-        decoder = mk_decoder(dirs)
+        decoder = decoder_cls(dirs)
     except Exception as e:
-        eprint(f"Failed to build decoder with factory function: {mk_decoder}")
+        eprint(f"Failed to initialize decoder {decoder_cls.__name__}:")
         print_exception(e)
         return False
     try:
@@ -163,11 +163,11 @@ def try_decode(mk_decoder, dirs, out_file, ignore_mac_error):
 
 def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
     if input_format == 'DATA':
-        mk_decoders = [data_file.FileDecoder]
+        decoders = [data_file.FileDecoder]
     elif input_format == 'QRCODE':
-        mk_decoders = [qrcode.QRDecoder]
+        decoders = [qrcode.QRDecoder]
     else:
-        mk_decoders = TRY_DECODERS
+        decoders = TRY_DECODERS
 
     print_errors = True
     if verbose():
@@ -179,10 +179,10 @@ def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
     try:
         with cm as captured_err:
             loop_msg = ""
-            for mk_decoder in mk_decoders:
+            for decoder_cls in decoders:
                 if loop_msg:
                     eprint(loop_msg)
-                ret = try_decode(mk_decoder, dirs, out_file, ignore_mac_error)
+                ret = try_decode(decoder_cls, dirs, out_file, ignore_mac_error)
                 if ret:
                     _, print_errors = ret
                     return True

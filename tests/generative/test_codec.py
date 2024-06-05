@@ -15,7 +15,7 @@ from .gen_common import m_and_n
 from triss.byte_streams import resize_seqs
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder
-from triss.codec.qrcode import QREncoder, QRDecoder
+from triss.codec.qrcode import QREncoder, QRDecoder, QR_DATA_SIZE_BYTES
 
 @given(data=st.lists(st.binary(min_size=1), min_size=1), m_n=m_and_n())
 def test_memory_codec(data, m_n):

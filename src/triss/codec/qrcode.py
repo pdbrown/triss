@@ -30,6 +30,16 @@ MARGIN = QR_BOX_SIZE * QR_BORDER
 
 TRY_FONTS = ["Helvetica.ttf", "DejaVuSans.ttf", "Arial.ttf"]
 
+def eprint_stdout_stderr(proc):
+    if proc.stdout:
+        eprint(proc.stdout.decode('utf-8'))
+    eprint_stderr(proc)
+
+def eprint_stderr(proc):
+    if proc.stderr:
+        eprint(proc.stderr.decode('utf-8'))
+
+
 def do_qrencode(data, path):
     # Invoke qrencode with args:
     # -o PATH
@@ -60,8 +70,7 @@ def do_qrencode(data, path):
             f"qrencode terminated by signal {proc.returncode} while writing "
             f"qrcode to {path}.")
     if proc.returncode != 0:
-        eprint(proc.stdout.decode())
-        eprint(proc.stderr.decode())
+        eprint_stdout_stderr(proc)
         raise RuntimeError(
             f"qrencode failed with error writing to {path}.")
 
@@ -264,7 +273,7 @@ def qr_decode(path):
                "Skipping it.")
         return bytes()
     if proc.returncode != 0:
-        eprint(proc.stderr.decode())
+        eprint_stderr(proc)
         raise RuntimeError(
             f"Error: Failed to scan QRCODE in {path}. Aborting.")
     # Check stderr status message, looks like:
@@ -273,7 +282,7 @@ def qr_decode(path):
                   proc.stderr.decode())
     # Want 1 qrcode per (1) image
     if m.group(1) != '1' or m.group(2) != '1':
-        eprint(proc.stderr.decode())
+        eprint_stderr(proc)
         eprint(f"Warning: Got unexpected number of QRCODEs in {path}. "
                "Skipping it.")
         return bytes()
@@ -307,7 +316,7 @@ def ensure_prog(cmdline, reason):
             f"The external program {prog} is required {reason} but is not "
             "available on the PATH.") from e
     if proc.returncode != 0:
-        eprint(proc.stderr.decode())
+        eprint_stdout_stderr(proc)
         raise RuntimeError(
             f"The external program {prog} is required {reason}, but appears "
             f"to be broken. Try running: {' '.join(cmdline)}")
