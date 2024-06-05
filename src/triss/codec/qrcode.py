@@ -32,12 +32,12 @@ TRY_FONTS = ["Helvetica.ttf", "DejaVuSans.ttf", "Arial.ttf"]
 
 def eprint_stdout_stderr(proc):
     if proc.stdout:
-        eprint(proc.stdout.decode('utf-8'))
+        eprint(proc.stdout.decode('utf-8').strip())
     eprint_stderr(proc)
 
 def eprint_stderr(proc):
     if proc.stderr:
-        eprint(proc.stderr.decode('utf-8'))
+        eprint(proc.stderr.decode('utf-8').strip())
 
 
 def do_qrencode(data, path):
@@ -258,24 +258,22 @@ def qr_decode(path):
          '--raw', '-Sbinary', path],
         capture_output=True)
     if proc.returncode == 4:
-        eprint(f"Warning: No QRCODE detected in {path}.")
+        eprint(f"No QRCODE detected in {path}.")
         return bytes()
     if proc.returncode < 0:
         # Then terminated by signal
-        eprint(f"Warning: zbarimg terminated by signal {proc.returncode} "
-               f"while attempting to read QRCODE in {path}. Skipping it.")
+        eprint(f"zbarimg terminated by signal {proc.returncode} while "
+               f"attempting to read QRCODE in {path}.")
         return bytes()
     imagemagick_error = proc.returncode == 2
     bad_file_format = (proc.returncode == 1 and
                        re.search(r'no decode delegate', proc.stderr.decode()))
     if imagemagick_error or bad_file_format:
-        eprint(f"Warning: unable to read file as QRCODE image: {path}. "
-               "Skipping it.")
+        eprint(f"Unable to read file as QRCODE image: {path}.")
         return bytes()
     if proc.returncode != 0:
         eprint_stderr(proc)
-        raise RuntimeError(
-            f"Error: Failed to scan QRCODE in {path}. Aborting.")
+        raise RuntimeError(f"Failed to scan QRCODE in {path}.")
     # Check stderr status message, looks like:
     # scanned 1 barcode symbols from 1 images in 0 seconds
     m = re.search(r'scanned (\d+) barcode.*from (\d+) image',
@@ -283,8 +281,7 @@ def qr_decode(path):
     # Want 1 qrcode per (1) image
     if m.group(1) != '1' or m.group(2) != '1':
         eprint_stderr(proc)
-        eprint(f"Warning: Got unexpected number of QRCODEs in {path}. "
-               "Skipping it.")
+        eprint(f"Got unexpected number of QRCODEs in {path}.")
         return bytes()
     return proc.stdout
 

@@ -38,6 +38,8 @@ class FileSegmentEncoder(MappingEncoder):
         with dest.open(mode='wb') as f:
             f.write(header.to_bytes())
             f.write(fragment)
+            f.flush()
+            os.fsync(f.fileno())
 
     def summary(self, n_segments):
         super().summary(n_segments)
@@ -64,6 +66,8 @@ class FileSegmentEncoder(MappingEncoder):
             f.write(header.to_bytes())
             for chunk in mac_data_stream:
                 f.write(chunk)
+            f.flush()
+            os.fsync(f.fileno())
 
     def finalize(self, share_id, header):
         path = self.file_path(share_id, header)
@@ -94,6 +98,8 @@ class FileEncoder(AppendingEncoder):
                            fragment_id=fragment_id))
         with path.open(mode='ab') as f:
             f.write(fragment)
+            f.flush()
+            os.fsync(f.fileno())
 
 
 class FileDecoder(Decoder):

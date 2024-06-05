@@ -643,7 +643,7 @@ class Decoder:
                 self.eprint(
                     f"WARNING: {msg}" + (f": {cause}" if cause else ""))
             else:
-                self.eprint(f"Error: {msg}")
+                self.eprint(msg)
                 raise RuntimeError(
                     f"{self.name}: ERROR: Unable to verify authenticity of "
                     "output. Aborting any remaining decoding process. Use "

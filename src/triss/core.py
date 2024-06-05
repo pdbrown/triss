@@ -31,7 +31,7 @@ def python_version_check(args):
     """
     if sys.version_info < (3, 11):
         eprint(
-            "Error: Python version is too old. Need at least 3.11 but ""have:")
+            "Error: Python version is too old. Need at least 3.11 but have:")
         eprint(sys.version)
         sys.exit(1)
 
@@ -41,13 +41,21 @@ TRY_DECODERS = [data_file.FileDecoder, qrcode.QRDecoder]
 
 def open_input(path):
     if path:
-        return open(path, 'rb')
+        try:
+            return open(path, 'rb')
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to open input file: {path}") from e
     else:
         return contextlib.nullcontext(sys.stdin.buffer)
 
 def open_output(path):
     if path:
-        return open(path, 'wb')
+        try:
+            return open(path, 'wb')
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to open output file: {path}") from e
     else:
         return contextlib.nullcontext(sys.stdout.buffer)
 
@@ -119,6 +127,8 @@ def do_split(in_file, out_dir, output_format=DEFAULT_FORMAT, m=2, n=2,
             f"Failed to split secret in {output_format} format.") from e
     if not skip_combine_check:
         assert_all_authorized_sets_combine(in_file, out_dir, m, output_format)
+    if hasattr(os, 'sync'):
+        os.sync()
 
 
 def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
@@ -142,6 +152,9 @@ def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
                 if chunk:
                     f.write(chunk)
                     n_chunks += 1
+            f.flush()
+            if out_file: # then f is not sys.stdout.buffer, so we can fsync
+                os.fsync(f.fileno())
         if n_chunks > 0:
             if verbose():
                 eprint(f"Successfully decoded with {decoder.name}!")
@@ -185,6 +198,8 @@ def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
                 ret = try_decode(decoder_cls, dirs, out_file, ignore_mac_error)
                 if ret:
                     _, print_errors = ret
+                    if hasattr(os, 'sync'):
+                        os.sync()
                     return True
                 loop_msg = "Trying next decoder."
     finally:
