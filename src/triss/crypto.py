@@ -24,7 +24,7 @@ def xor_bytes(xs, ys):
     if len(xs) != len(ys):
         raise ValueError("Refusing to xor byte strings of different length: "
                          f"len(xs) = {len(xs)}, len(ys) = {len(ys)}.")
-    return bytes(b1 ^ b2 for b1, b2 in zip(xs, ys))
+    return bytes(x ^ y for x, y in zip(xs, ys))
 
 
 def split_secret(secret_bytes, n):
@@ -43,13 +43,13 @@ def split_secret(secret_bytes, n):
             "Refusing to return secret_bytes without splitting, require at "
             "least N=2 fragments. Check number of shares.")
 
-    one_time_pad = list(secret_bytes)
-    k = len(one_time_pad)
+    ciphertext = list(secret_bytes)
+    k = len(ciphertext)
     for _ in range(n_keys):
         key = secrets.token_bytes(k)
-        one_time_pad = xor_bytes(one_time_pad, key)
+        ciphertext = xor_bytes(ciphertext, key)
         yield key
-    yield one_time_pad
+    yield ciphertext
 
 
 def combine_fragments(fragments):

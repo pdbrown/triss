@@ -1,43 +1,73 @@
 # Triss
 
-Information theoretically secure **TRI**vial **S**ecret **S**haring.
+**TRI**vial **S**ecret **S**haring with authentication, support for M-of-N
+splits, and paper backups.
 
-Split a secret into `N` shares, such that every subset of `M` shares contains
-the information needed to reconstruct the secret. No subset smaller than `M`
-reveals any information about the secret, except its maximum size.
+Triss is a command line tool that takes input data (the "secret") and splits it
+into multiple shares such that no single share can recover the secret. In
+reverse, it combines shares to recover the secret, using message authentication
+codes (MACs) to ensure the recovered secret is identical to the original. Triss
+supports _N-of-N_ and _M-of-N_ splits, `2-of-2` or `3-of-5` for example.
+Formally:
+
+> Split a secret into `N` shares, such that every subset of `M` shares contains
+the information needed to reconstruct the secret. `M >= 2` and `N >= M`. No
+subset smaller than `M` reveals any information about the secret, but see
+[cryptography](#cryptography) below.
+
+Triss supports two output modes: `DATA` and `QRCODE`. In `DATA` mode, it writes
+shares as plain binary files without any special encoding. In `QRCODE` mode, it
+generates QR codes as PNG images that can be printed onto paper.
 
 
-## What is this for?
+## Rationale
 
-Use this to make backups of your secrets (passwords, gpg keys, etc.) without
-having to remember anything, except where you leave the shares.
+Use `triss` to make encrypted backups without having to remember an encryption
+key or password. Trivial secret sharing is handy when you want high confidence
+your data will be recoverable far into the future: decryption is a
+straightforward XOR of the shares, [see below](#how-does-it-work), and easy to
+re-implement from scratch should this software disappear or become unusable some
+day.
 
 Say you split a secret into `N = 3` shares, requiring `M = 2` shares to recover
-it. Then give one share to your best friend, another to your lawyer, and keep
-the third one. You trust your lawyer not to collude with your friend, and if you
-ever forget your secret, you can recover it as long as you can get 2 of the 3
-shares. When you die, your friend and lawyer can discover what you've been
+it. Give one share to your best friend, another to your lawyer, and keep the
+third one. You trust your lawyer not to collude with your friend, and if you
+ever need access to your data, you can recover it as long as you can get 2 of
+the 3 shares. When you die, your friend and lawyer can discover what you've been
 hiding all these years.
-
-You can distribute shares in `DATA` file format, or print them onto paper in
-`QRCODE` format.
 
 
 ## How does it work?
 
-Trivial secret sharing is dead simple and works by XORing the secret with a
-random number. This is the same idea as a
-[one-time pad](https://en.wikipedia.org/wiki/One-time_pad).
+[Trivial secret
+sharing](https://en.wikipedia.org/wiki/Secret_sharing#Trivial_secret_sharing) is
+quite simple and works by combining the secret with a random number using the
+[exclusive or](https://en.wikipedia.org/wiki/Exclusive_or) (XOR) operation. This
+is the same idea as a [stream
+cipher](https://en.wikipedia.org/wiki/Stream_cipher) or [one-time
+pad](https://en.wikipedia.org/wiki/One-time_pad), depending on the source of the
+[randomness](#randomness).
 
 For a 2-of-2 split:
-- Represent your secret as a binary number `S`.
-- Securely generate an unguessable random number `K` of the same length as `S`.
-- Combine `S` and `K` to make `P = S xor K`.
-- Distribute `P` and `K` as the 2 shares of the secret.
-- Recover the secret by combining them: `P xor K = S`.
+- Represent your secret as a binary number `P`.
+- Generate a random number `K` of the same length as `P`.
+- Combine `P` and `K` to make `C = P xor K`.
+- Distribute `C` and `K` as the 2 shares of the secret.
+- Recover the secret by combining them: `C xor K = P`.
+
+Proof:
+```
+Given P                      your Plaintext data (the "secret")
+Generate K, |K| = |P|        a random Key, same length as P
+C       = P xor K            produce Ciphertext by encrypting Plaintext with Key
+C xor K = (P xor K) xor K    xor Key on both sides
+C xor K = P xor (K xor K)    xor is associative
+C xor K = P xor 0            simplify: K xor K = 0
+C xor K = P                  simplify: P xor 0 = P. Recover Plaintext data.
+```
 
 For `N of N` splits with more shares, generate more keys `K2`, `K3`, etc and XOR
-them all into `S` to make `P`. The shares are `P` and all keys `K`, `K2`, `K3`,
+them all into `P` to make `C`. The shares are `C` and all keys `K`, `K2`, `K3`,
 etc.
 
 For `M of N` splits where `M < N`, make a separate `M of M` split for each
@@ -47,20 +77,25 @@ of the $\binom{N}{M}$ subsets.
 ## Installation
 
 ### Prerequisites
-There are no prerequisites for `DATA` file mode, but the `QRCODE` mode
-depends on [`qrencode`](https://github.com/fukuchi/libqrencode) and
-[`zbarimg`](https://github.com/mchehab/zbar).
+Triss is a python program that requires python `3.11` or newer. There are no
+additional prerequisites for `DATA` file mode, but the `QRCODE` mode depends on
+external programs [`qrencode`](https://github.com/fukuchi/libqrencode) for
+splitting/encoding and [`zbarimg`](https://github.com/mchehab/zbar) for
+combining/decoding.
 
 ```
 | Dependency  | Minimum Version |   Released |
 |-------------+-----------------+------------|
+| python      |            3.11 | 2022-10-24 |
 | libqrencode |           4.1.1 | 2020-09-28 |
 | zbarimg     |          0.23.1 | 2020-04-20 |
 ```
 
 Note the minimum version of `zbarimg` is a hard requirement, because support for
-binary data was added in `0.23.1`, and that older versions of `qrencode` may
-work, but haven't been tested.
+binary data was added in `0.23.1`. Older versions of `qrencode` may work, but
+haven't been tested.
+
+Python is available at https://www.python.org/downloads/.
 
 #### Debian / Ubuntu
 ```bash
@@ -77,8 +112,16 @@ sudo dnf install qrencode zbar
 brew install qrencode zbar
 ```
 
-See also
-[zbar](https://github.com/mchehab/zbar/tree/6092b033b35fdcc7ee95fc366ed303f475739bfc).
+#### Windows
+
+##### qrencode
+See https://fukuchi.org/works/qrencode/ or
+https://github.com/fukuchi/libqrencode.
+
+##### zbarimg
+Either download from https://linuxtv.org/downloads/zbar/binaries/ or to build
+from source, see https://github.com/mchehab/zbar.
+
 
 ### Dist Package
 The following steps usually happen in a python virtual environment. Set one up
@@ -88,7 +131,8 @@ $(command -v python3 || command -v python) -m venv venv
 source venv/bin/activate
 ```
 
-Then either install directly:
+Then either install `triss` from [pypi](https://pypi.org/) directly without
+verification:
 ```bash
 pip install triss
 ```
@@ -138,28 +182,32 @@ options:
 
 ### Recover secret
 ```
-triss combine [-h] [-c {DATA,QRCODE}] [-o OUT_FILE] DIR [DIR ...]
+usage: triss combine [-h] [-c {DATA,QRCODE}] [-o OUT_FILE] [--DANGER-allow-invalid] DIR [DIR ...]
 
 positional arguments:
-  DIR               one or more directories containing input files to combine
+  DIR                   one or more directories containing input files to combine
 
 options:
-  -h, --help        show this help message and exit
-  -c {DATA,QRCODE}  input file format, will guess if omitted
-  -o OUT_FILE       write secret to output file, or stdout if omitted
+  -h, --help            show this help message and exit
+  -c {DATA,QRCODE}      input file format, will guess if omitted
+  -o OUT_FILE           write secret to output file, or stdout if omitted
+  --DANGER-allow-invalid
+                        Don't stop decoding on message authentication error. WARNING! There
+                        is no guarantee the decoded output matches the original input.
 ```
+
 
 ## Examples
 
 Prepare a demo secret for the following examples.
 ```bash
-echo "Not a real secret -____-" > demosecret.txt
+echo "Hello there." > demosecret.txt
 ```
 
 ### Split secret in DATA mode
 
 Shares of the secret are stored in plain binary files. This handy when the
-secret is large and you don't care about printing the shares onto paper.
+secret is large and you don't care about making paper copies.
 
 ```bash
 # Make 2-of-4 split
@@ -169,10 +217,10 @@ triss split -i demosecret.txt -m 2 4 data-shares
 ### Split secret in QRCODE mode
 
 Shares of the secret are produced the same way as in DATA mode, then encoded as
-QR codes. This allows you to print them onto paper, but can be slow and
-cumbersome for large secrets. Each QR code stores up to 1273 bytes, and is
-generated with error correction set to "High", so is scannable as long as at
-least 70% of the original image is available.
+QR codes. This allows you to make paper copies, but can be slow and cumbersome
+for large inputs. Each QR code stores up to 1273 bytes, and is generated with
+error correction set to "High", so is scannable as long as at least 70% of the
+original image is available (the finder pattern must be intact regardless).
 
 ```bash
 # Make a 2-of-4 split in QRCODE mode
@@ -182,248 +230,297 @@ triss split -i demosecret.txt -c QRCODE -t mysecret -m 2 4 qr-shares
 ### Recover secret
 
 ```bash
-# Recover from data shares
-triss combine -o recovered_01.txt data-shares/share-0 data-shares/share-1
+# Recover from any 2 shares
+triss combine -o output.txt data-shares/share-0 data-shares/share-3
 
 # Recover from (photos of) QR codes
-triss combine -o recovered_qr.txt qr-shares/share-0 qr-shares/share-1
-
-# Demonstrate that any 2 data shares can recover the secret
-for i in $(seq 0 3); do
-  for j in $(seq $((i+1)) 3); do
-    echo Recover secret with shares $i and $j
-    triss combine -o recovered_${i}${j}.txt shares/share-$i shares/share-$j
-  done
-done
-more recovered*.txt | cat
+triss combine -o output_qr.txt qr-shares/share-1 qr-shares/share-2
 ```
+
+### Distribute shares
 
 Each share is put into its own subdirectory and consists of _multiple parts_.
 Make sure you keep parts of a share together and distribute complete shares with
 all their parts. If any part is missing, the share is useless.
 
-```
-TODO FIXME
-
-shares
-├── share-0
-│   ├── share-0_part-1_of_3.dat
-│   ├── share-0_part-2_of_3.dat
-│   └── share-0_part-3_of_3.dat
-├── share-1
-│   ├── share-1_part-1_of_3.dat
-│   ├── share-1_part-2_of_3.dat
-│   └── share-1_part-3_of_3.dat
-├── share-2
-│   ├── share-2_part-1_of_3.dat
-│   ├── share-2_part-2_of_3.dat
-│   └── share-2_part-3_of_3.dat
-└── share-3
-    ├── share-3_part-1_of_3.dat
-    ├── share-3_part-2_of_3.dat
-    └── share-3_part-3_of_3.dat
+For example: One of the 3 shares of a 2-of-3 split produced with
+```bash
+triss split -i input.txt -c DATA -m 2 3 shares
 ```
 
+is given to each of 3 participants A, B, and C. Each participant must keep all 4
+parts of their share.
+
+```
+Participant A gets all of:
+share-0
+├── share-0_part-1_of_4.dat
+├── share-0_part-2_of_4.dat
+├── share-0_part-3_of_4.dat
+└── share-0_part-4_of_4.dat
+
+Participant B gets all of:
+share-1
+├── share-1_part-1_of_4.dat
+├── share-1_part-2_of_4.dat
+├── share-1_part-3_of_4.dat
+└── share-1_part-4_of_4.dat
+
+Participant C gets all of:
+share-2
+├── share-2_part-1_of_4.dat
+├── share-2_part-2_of_4.dat
+├── share-2_part-3_of_4.dat
+└── share-2_part-4_of_4.dat
+```
+
+
+## Development
+
+### Install From Source
+```bash
+git clone https://github.com/pdbrown/triss && cd triss
+$(command -v python3 || command -v python) -m venv venv
+source venv/bin/activate
+make dev
+```
+
+### Test
+```bash
+make test
+make stress
+```
+
+### Build
+```bash
+# Build dist package.
+make build
+
+# Or build and sign it. The sign recipe invokes gpg and passes extra GPG_OPTS
+# you can set in the environment.
+make sign
+```
+
+Note that building runs `pip install` in non-editable mode, so you'd need to
+re-run `make dev` (or `pip install --editable '.[qrcode,test]'`) to reset the
+dev environment.
+
+#### Container
+```bash
+# Build a docker image that contains both signed triss and zbarimg
+make docker
+# or if you prefer podman, do
+make docker DOCKER=podman
+
+# The container entrypoint is the triss cli, and the image contains an /app
+# directory, so you can do:
+echo "Another secret." > mysecret.txt
+docker run --rm -v .:/app triss:latest \
+    split -i /app/mysecret.txt -c QRCODE -m 2 3 /app/qrshares
+
+# Find shares here:
+find ./qrshares
+```
+
+You can also run the container with `systemd-nspawn`. After building the image,
+do:
+```bash
+VERSION=$(awk -F\" '/^version/ { print $2 }' pyproject.toml)
+docker create --name triss_$VERSION triss:$VERSION
+docker export -o triss_${VERSION}.tar triss_${VERSION}
+mkdir rootfs
+tar xf triss_${VERSION}.tar -C rootfs
+
+echo "So many secrets." > rootfs/app/input.dat
+sudo systemd-nspawn --quiet --directory rootfs \
+    /venv/bin/triss split -i /app/input.dat -c QRCODE -m 2 3 /app/qrshares
+
+# And find result in
+find rootfs/app/qrshares
+```
 
 
 ## Details
 
 ### Motivation
 
-There are many other tools that do secret sharing, but they all seem to
-implement
-[Shamir's Secret Sharing](https://en.wikipedia.org/wiki/Shamir's_secret_sharing).
+There are many other tools that do secret sharing, so why build `triss`?
 
 - https://iancoleman.io/shamir/
 - https://github.com/jesseduffield/horcrux
 - http://point-at-infinity.org/ssss/
 - https://github.com/cyphar/paperback
+- ... and more
 
-I wanted one that does trivial secret sharing, because I'm not smart enough to
-understand Shamir's method and whether an implementation secure. I found trivial
-secret sharing to be simpler. It's also easier to reimplement from scratch in
-case the original software used to split the secret is lost or incompatible with
-future operating systems.
+These other tools implement [Shamir's Secret
+Sharing](https://en.wikipedia.org/wiki/Shamir's_secret_sharing) or similar. A
+major advantage of Shamir's method is that the size of each share is linear in
+the size of the secret, whereas trivial secret shares grow as
+`O($\binom{N}{M}$)` because they include a fragment of the secret from every
+subset of size `M`.
+
+While Shamir's secret sharing has its advantages, it's also harder to
+understand, and so it's harder to verify an implementation is correct. The
+system should also produce authenticated messages, since secret sharing is
+malleable: a flipped bit in the ciphertext (any of the shares) leads to a
+flipped bit in the decoded plaintext. The system should support digital and
+paper output formats.
+
+So `triss`:
+- Is an implementation of trivial secret sharing: easy to use, understand, and
+  reproduce.
+- Tags shares of secrets with message authentication codes.
+- Produces either data file or printable QR code outputs.
+
 
 ### Cryptography
 
 #### Randomness
 
-This trivial secret sharing scheme relies on its random numbers being truly
-random. It uses python's `secrets.token_bytes` method, which calls `os.urandom`,
-which uses the `getrandom(2)` system call in blocking mode on linux (on python
-version `>= 3.6` and linux kernel version `>= 3.17`).
+Secret sharing schemes are often described as having [information-theoretic
+security](https://en.wikipedia.org/wiki/Information-theoretic_security) aka
+perfect secrecy, because an attacker with `M-1` shares knows no more about the
+secret than someone without any shares at all. That is, all secrets are equally
+likely, and an attacker is left guessing at random.
 
-See `man 4 random` and `man 2 getrandom`. And from `man 7 random`:
+This property of perfect secrecy depends on the key being _truly_ random. The
+key here is the `K` [above](#how-does-it-work) (or the set of randomly chosen
+coefficients of a polynomial in the case of [Shamir's
+method](https://en.wikipedia.org/wiki/Shamir%27s_secret_sharing#Mathematical_formulation)).
 
-> The kernel random‐number generator relies on entropy gathered from device
-drivers and other sources of environmental noise to seed a cryptographically
-secure pseudorandom number generator (CSPRNG). Unless you are doing long‐term
-key generation (and most likely not even then), you probably shouldn’t be
-reading from the /dev/random device or employing getrandom(2) with the
-GRND_RANDOM flag. Instead, either read from the /dev/urandom device or employ
-getrandom(2) without the GRND_RANDOM flag. The cryptographic algorithms used for
-the urandom source are quite conservative, and so should be sufficient for all
-purposes.
+In practice, however, these keys are pseudorandom, since they're generated by
+your operating system's [cryptographically secure pseudorandom number generator
+(CSPRNG)](https://en.wikipedia.org/wiki/Cryptographically_secure_pseudorandom_number_generator).
+Instead of an infinite number of possible random key streams (sequences of
+random 1s and 0s) there are "only" as many as many pseudorandom keystreams as
+can be enumerated by the internal states of the CSPRNG. For example, recent
+versions of
+[linux](https://github.com/torvalds/linux/blob/v5.18/drivers/char/random.c) use
+a [ChaCha](https://www.zx2c4.com/projects/linux-rng-5.17-5.18/) based CSPRNG
+with a 256 bit key size. Thus while there are no less than `2^256` different key
+streams, there are not infinitely many.
+
+So given a `triss` share `C`, if an attacker attempts to brute force a key `K` to
+recover the plaintext with `P = C xor K`, they can narrow their search from the
+space of all possible keystreams to that of the no less than `2^256` keystreams
+generated by the CSPRNG.
+
+While no longer perfect secrecy, this degree of security is good enough,
+computationally infeasible to break, and the same as that of other modern
+cryptography provided the CSPRNG is not broken.
+
+##### Footnotes
+Triss uses python's `secrets.token_bytes` method to generate keys. That calls
+`os.urandom`, which uses the `getrandom(2)` system call in blocking mode on
+linux (kernel version `>= 3.17`).
+
+On linux, see also `man 7 random`, `man 2 getrandom`, and the legacy random
+device interface manual at `man 4 random`.
+
 
 #### Authentication
 
-One major flaw of secret sharing schemes (at least trivial secret sharing and
-Shamir's) is that there is no message authentication. An attacker or dishonest
-participant can modify their share such that the combined result no longer
-reproduces the original secret.
+##### Malleablility
 
-You can always do some kind of authentication outside of `triss`, but it will
-affect the security properties of the resulting system.
+A problem with trivial secret sharing is that it does nothing to authenticate
+messages. An attacker or dishonest participant can corrupt their share such that
+the combined result no longer reproduces the original input. Even worse, trivial
+secret sharing is
+[malleable](https://en.wikipedia.org/wiki/Malleability_(cryptography)), which
+means the attacker cause the reconstructed input to be altered in a predictable
+way. Flipping any bit of an encrypted share causes the corresponding bit of the
+combined result to be flipped too. This can be disastrous if the secret is an
+instruction. Say a dishonest participant knows a message is either "attack" or
+"defend". They can corrupt their share such that the combined result is always
+the opposite of the original input, without knowing what the original input was.
 
-##### A _flawed_ authentication scheme
+```python
+# Demonstrate 2-of-2 trivial secret split malleability
+import secrets
+def xor(xs, ys):
+    return bytes(x ^ y for x, y in zip(xs, ys))
 
-**Don't do this!** It's just an example of why authentication is non-trivial.
+# Split secret
+plaintext = b"attack"
+share_1 = secrets.token_bytes(len(plaintext))  # give to honest participant
+share_2 = xor(plaintext, share_1)              # give to dishonest participant
 
-Say you want to split a password into 2 shares, requiring both to recover. But
-you decide you also want to authenticate the result so you'll know the recovered
-password is the same as the original. You do the 2-of-2 split, then compute
-sha256 hashes of both shares, and give each participant one share and both
-hashes. Later when combining, each participant can verify the hash of the
-other's share, and so determine whether it's been modified.
+# Corrupt share
+corruption = xor(b"attack", b"defend")
+share_2_corrupted = xor(share_2, corruption)
 
-But wait! You just gave each participant all they need to crack the password:
-they already hold one share, and need to guess the 2nd share to obtain the
-password. They don't have the 2nd share, but they do have its sha256 hash. They
-also know the length of the password (the length of their share), and if it's
-short enough, they can just try every possible bit string and hash it. Once they
-find a match, they've found your share, and can decrypt the password.
-
-This attack becomes infeasible if the password is long enough, and the hash
-function is expensive enough, the resulting system is no longer information
-theoretically secure.
-
-##### A better authentication scheme
-
-```
-m=3 of n=5
-
-Segment 0:
-    share 0:  A1  B1  C1  D1  E1  F1
-    share 1:  A2  B2  C2               G1 H1 I1
-    share 2:  A3          D2  E2       G2 H2    J1
-    share 3:      B3      D3      F2   G3    I2 J2
-    share 4:          C3      E3  F3      H4 I3 J3
-
-Segment 1:
-    share 0:  A1  B1  C1  D1  E1  F1
-    share 1:  A2  B2  C2               G1 H1 I1
-    share 2:  A3          D2  E2       G2 H2    J1
-    share 3:      B3      D3      F2   G3    I2 J2
-    share 4:          C3      E3  F3      H4 I3 J3
-
-
-10 asets => 60 hmacs: one for each seg of eadh frag
-
-for aset A:
-  share 0: A1_key, A1_MAC, A2_MAC, A3_MAC, A1_MAC, A2_MAC, A3_MAC
-  share 1: A2_key, A1_MAC, A2_MAC, A3_MAC, A1_MAC, A2_MAC, A3_MAC
-  share 2: A3_key, A1_MAC, A2_MAC, A3_MAC, A1_MAC, A2_MAC, A3_MAC
-                   ^-- segment 0           ^-- segment 1
-
-
-
-
-
-
-Simplest Example: 2-of-2 split, 1 segment (1 aset)
-
-Segment 0:
-    share 0: A1
-    share 1: A2
-
-Player 0 gets share 0:
-aset_id=0: (aset A)
-- fragment 0
-- MAC key_A_0 for share 0 (fragment 0)
-- MAC digest of (key_A_0, fragment 0)
-- MAC digest of (key_A_1, fragment 1)
-
-Player 1 gets share 1:
-aset_id=0: (aset A)
-- fragment 1
-- MAC key_A_1 for share 1 (fragment 1)
-- MAC digest of (key_A_0, fragment 0)
-- MAC digest of (key_A_1, fragment 1)
-
+# Attept recovery of secret
+xor(share_1, share_2_corrupted)
+# => b"defend"
 ```
 
-This is similar to the flawed one above, but uses HMAC instead of a plain hash.
-Split a password into 2 shares `s1` and `s2`. Participants `p1` and `p2` each
-generate a secret key `k1` and `k2`, which they keep to themselves, and h1 =
-sha256(k1), h2 = sha256(k2) which are made public. p1 needs to
-verify s2 later, so computes hmac(k1, s2)
+And if the original input had been `b"defend"`, the recovered data would be
+`b"attack"` instead. This same attack is possible on executable programs with
+well-known header formats.
 
-p1:
-s1 (private)
-k1 (private)
-hmac(s1, k1) = mac1(public)
+##### Message authentication codes
 
-and get:
-mac2
+Triss uses HMAC-SHA-384 hash-based message authentication codes (MACs) to
+validate the authenticity of shares in an [encrypt then
+mac](https://en.wikipedia.org/wiki/Authenticated_encryption#Encrypt-then-MAC_(EtM))
+fashion as follows.
 
-but don't have:
-k2, so can't brute force s2 = ? in hmac(?, k2) = mac2
+For each share of the split secret:
+- Given the (split) data `Si` for `i`th share,
+- Generate a 384 bit key `Ki` and
+- Compute a MACi = HMAC-SHA-384(Si, Ki)
 
-at decode time, get:
-k2 (can verify h2 = h(k2))
-s2 (can verify mac2 = hmac(s2, k2))
+Then concatenate the MACs of all shares, and include with each share the MACs of
+all shares. Also give each share its own key `Ki`, but no keys of the MACs of
+any other share. When combining, reveal data and keys of all shares, recompute
+MACs of each share, and verify they match the original MACs distributed with
+your share.
 
-
-p1:
-s1 (private)
-k1 (private)
-hmac(s1, k1) = mac1(public)
-
-and get:
-mac2
-
-but don't have:
-k2, so can't brute force s2 = ? in hmac(?, k2) = mac2
-
-at decode time, get:
-k2
-s2 (can verify mac2 = hmac(s2, k2))
+It may seem unnecessary to use HMACs: wouldn't simpler (secure) hash functions,
+say plain SHA384, suffice? While a plain hash digest proves authenticity, it
+also allows an attacker, another participant in this case, to guess your share
+by brute force. They enumerate and test all bit strings until they find a
+matching digest and thus your share. This is very easy for short secrets, say a
+4 digit PIN number. By using a _keyed_ hash function like HMAC, the attacker
+must also guess your (384 bit) key which is computationally infeasible.
 
 
-Encrypt-then-MAC
+#### Encryption vs Trivial Secret Sharing
 
-p1: s1, k1 -> mac1
-p2: s2, k2 -> mac2
-p3: s3, k3 -> mac3
+Here's a different way to implement 2-of-2 trivial secret sharing using standard
+symmetric encryption:
 
-p1 has:
-s1, k1, mac1, mac2, mac3
+To split the secret:
+- Generate a random key `k`, at least 256 bits long.
+- Encrypt the plaintext with the key to produce ciphertext `c`.
+- Distribute `k` and `c` as the 2 shares.
 
-p2 has:
-s2, k2, mac1, mac2, mac3
+To combine the shares:
+- Decrypt `c` with `k` to recover the input.
 
-p3 has:
-s3, k3, mac1, mac2, mac3
+To extend to 3-of-3 secret sharing, encrypt the first key `k` with another key
+`k2` to produce ciphertext `c2`, and distribute `k2`, `c2`, and the original
+input's ciphertext `c`.
 
+Depending on the choice of algorithm, the security properties of `triss` are
+similar to those of symmetric encryption. In particular, `triss` on linux is
+similar to the
+[ChaCha20](https://datatracker.ietf.org/doc/html/rfc8439#section-2.4) stream
+cipher, which generates a pseudorandom keystream from a 256 bit key and other
+fixed size input, then XORs that stream with the plaintext to produce the cipher
+text. On linux (as of kernel 4.8), the CSPRNG is based on the part of ChaCha
+that generates the keystream. It has an unguessable, hidden, internal state of
+at least 256 bits, which is analagous to the ChaCha20 key.
 
+So if you split (encrypt) your secret with ChaCha20, you keep the ciphertext and
+the 256 bit key as the two shares. If you split your secret with `triss`, you
+keep the ciphertext and the entire keystream (CSPRNG output) used to encrypt it,
+which is as long as the ciphertext.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+The advantage of ChaCha20 is you typically need less total storage to keep the 2
+shares: `|C| + 256` vs `2|C|` bits. The advantage of `triss` is that decryption
+is simpler: you don't need to know how to re-generate the keystream from the
+key, because you saved it in its entirety.
 
 
 ## Algorithm
@@ -532,69 +629,43 @@ https://en.wikipedia.org/wiki/Secret_sharing#Efficient_secret_sharing
 
 See also https://en.wikipedia.org/wiki/Secret_sharing#Trivial_secret_sharing
 
-## Development
 
-### Install From Source
-```bash
-git clone https://github.com/pdbrown/triss && cd triss
-$(command -v python3 || command -v python) -m venv venv
-source venv/bin/activate
-make dev
+### MAC data layout
+MAC data layout for 3-of-5 example.
+```
+For aset A:
+  share 0: A1_key, A1_MAC, A2_MAC, A3_MAC, A1_MAC, A2_MAC, A3_MAC
+  share 1: A2_key, A1_MAC, A2_MAC, A3_MAC, A1_MAC, A2_MAC, A3_MAC
+  share 2: A3_key, A1_MAC, A2_MAC, A3_MAC, A1_MAC, A2_MAC, A3_MAC
+                   ^-- segment 0           ^-- segment 1
+
+Simplest Example: 2-of-2 split
+1 segment segment_id=0
+1 authorized set aset_id=0
+2 fragments: A1 and A2
+
+share 0:
+  segment 0: A1
+share 1:
+  segment 0: A2
+
+Participant 0 gets share 0 which includes:
+- A1: segment_id=0, fragment_id=0
+- MAC key_A1 (aset_id=0, fragment_id=0, segment_id=0)
+- MAC digest of (key_A1, A1)
+- MAC digest of (key_A2, A2)
+
+Participant 1 gets share 1 which includes:
+- A2: segment_id=0, fragment_id=1
+- MAC key_A2 (aset_id=0, fragment_id=1, segment_id=0)
+- MAC digest of (key_A1, A1)
+- MAC digest of (key_A2, A2)
 ```
 
-### Test
-```bash
-make test
-make stress
-```
 
-### Build
-```bash
-# Build dist package.
-make build
 
-# Or build and sign it. The sign recipe invokes gpg and passes extra GPG_OPTS
-# you can set in the environment.
-make sign
-```
 
-Note that building runs `pip install` in non-editable mode, so you'd need to
-re-run `make dev` (or `pip install --editable '.[qrcode,test]'`) to reset the
-dev environment.
 
-#### Container
-```bash
-# Build a docker image that contains both signed triss and zbarimg
-make docker
-# or if you prefer podman, do
-make docker DOCKER=podman
-
-# The container entrypoint is the triss cli, and the image contains an /app
-# directory, so you can do:
-echo "Another secret." > mysecret.txt
-docker run --rm -v .:/app triss:latest \
-    split -i /app/mysecret.txt -c QRCODE -m 2 3 /app/qrshares
-
-# Find shares here:
-find ./qrshares
-```
-
-You can also run the container with `systemd-nspawn`. After building the image,
-do:
-```bash
-VERSION=$(awk -F\" '/^version/ { print $2 }' pyproject.toml)
-docker create --name triss_$VERSION triss:$VERSION
-docker export -o triss_${VERSION}.tar triss_${VERSION}
-mkdir rootfs
-tar xf triss_${VERSION}.tar -C rootfs
-
-echo "So many secrets." > rootfs/app/input.dat
-sudo systemd-nspawn --quiet --directory rootfs \
-    /venv/bin/triss split -i /app/input.dat -c QRCODE -m 2 3 /app/qrshares
-
-# And find result in
-find rootfs/app/qrshares
-```
 
 
 ## License

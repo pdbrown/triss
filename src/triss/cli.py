@@ -52,8 +52,8 @@ def cli():
     m.add_argument('--DANGER-allow-invalid', required=False,
                    action='store_true',
                    help="Don't stop decoding on message authentication error. "
-                   "WARNING! Use of this flag means there is no guarantee the "
-                   "decoded output matches the original input.")
+                   "WARNING! There is no guarantee the decoded output matches "
+                   "the original input.")
 
     args = parser.parse_args()
     core.python_version_check(args)
