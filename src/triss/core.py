@@ -169,7 +169,6 @@ def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
             traceback.print_exc()
         return (True, True)  # success, do print errors
     except Exception as e:
-        decoder.print_registered_headers()
         decoder.eprint("And failed to decode with:")
         print_exception(e)
     return False

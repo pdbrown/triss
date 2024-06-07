@@ -117,7 +117,7 @@ def add_xy(pos, dxdy):
     dx, dy = dxdy
     return (x + dx, y + dy)
 
-def add_caption(img, title, subtitle="", body=""):
+def add_caption(img, title, subtitle="", detail=""):
     # Resize images so text has constant size regardless of the qrcode IMG
     # size.
     spacing = 6
@@ -127,12 +127,12 @@ def add_caption(img, title, subtitle="", body=""):
     w = (qr_v40_modules + 2 * QR_BORDER) * QR_BOX_SIZE
     title_font = find_font(6 * QR_BOX_SIZE)
     subtitle_font = find_font(4 * QR_BOX_SIZE)
-    body_font = find_font(2.5 * QR_BOX_SIZE)
+    detail_font = find_font(2.5 * QR_BOX_SIZE)
     title_h = font_height(title_font, title, spacing=spacing)
     subtitle_h = font_height(subtitle_font, subtitle, spacing=spacing)
-    body_h = font_height(body_font, body, spacing=spacing)
+    detail_h = font_height(detail_font, detail, spacing=spacing)
     y_margin = 6 * spacing
-    h = MARGIN + title_h + subtitle_h + body_h + 3 * y_margin
+    h = MARGIN + title_h + subtitle_h + detail_h + 3 * y_margin
     capt = Image.new('RGBA', (w, h), 'white')
     d = ImageDraw.Draw(capt)
     cursor = (MARGIN, MARGIN)  # top-left corner of layout
@@ -142,8 +142,8 @@ def add_caption(img, title, subtitle="", body=""):
         d.text(cursor, subtitle, fill='black', font=subtitle_font,
                spacing=spacing)
         cursor = add_xy(cursor, (0, subtitle_h + y_margin))
-    if body:
-        d.text(cursor, body, fill='black', font=body_font, spacing=spacing)
+    if detail:
+        d.text(cursor, detail, fill='black', font=detail_font, spacing=spacing)
     line_y = h - 1  # bottom of image
     d.line(((MARGIN, line_y), (w - MARGIN, line_y)), 'gray')
 
@@ -153,11 +153,11 @@ def add_caption(img, title, subtitle="", body=""):
     return pad_vertical(captioned)
 
 
-def qr_encode(data, path, *, title="", subtitle="", body=""):
+def qr_encode(data, path, *, title="", subtitle="", detail=""):
     do_qrencode(data, path)
     img = load_image(path)
     if title:
-        img = add_caption(img, title, subtitle, body)
+        img = add_caption(img, title, subtitle, detail)
     img.save(path)
     return img
 
@@ -206,14 +206,14 @@ class QREncoder(FileSegmentEncoder):
                         f"Part {part_num}/{self.n_parts_per_share}\n"
                         f"Recover secret with {self.m} of {self.n} shares.\n"
                 f"Require all parts of each share.")
-            body = ("==== Part Details ====\n"
-                    f"{type(header).__name__} version: {header.version}\n"
-                    f"MACs for Authorized Set aset_id={header.aset_id}\n"
-                    f"MAC key for fragment_id={header.fragment_id}\n"
-                    f"MAC Slice: {part_id + 1}/{header.part_count}\n"
-                    f"MAC Algorithm: {header.algorithm}")
+            detail = ("==== Part Details ====\n"
+                      f"{type(header).__name__} version: {header.version}\n"
+                      f"MACs for Authorized Set aset_id={header.aset_id}\n"
+                      f"MAC key for fragment_id={header.fragment_id}\n"
+                      f"MAC Slice: {part_id + 1}/{header.part_count}\n"
+                      f"MAC Algorithm: {header.algorithm}")
             qr_encode(data, path, title=self.secret_name, subtitle=subtitle,
-                      body=body)
+                      detail=detail)
 
     def post_process(self, share_id, header, part_number, path):
         with path.open('rb') as f:
@@ -224,14 +224,15 @@ class QREncoder(FileSegmentEncoder):
                     f"Part {part_number}/{self.n_parts_per_share}\n"
                     f"Recover secret with {self.m} of {self.n} shares.\n"
                     f"Require all parts of each share.")
-        body = ("==== Part Details ====\n"
-                f"{type(header).__name__} version: {header.version}\n"
-                f"Authorized Set aset_id={header.aset_id}\n"
-                f"Segment: {header.segment_id + 1}/{header.segment_count}\n"
-                f"Fragment: {header.fragment_id + 1}/{header.fragment_count}")
+        detail = (
+            "==== Part Details ====\n"
+            f"{type(header).__name__} version: {header.version}\n"
+            f"Authorized Set aset_id={header.aset_id}\n"
+            f"Segment: {header.segment_id + 1}/{header.segment_count}\n"
+            f"Fragment: {header.fragment_id + 1}/{header.fragment_count}")
 
         qr_encode(data, img_path, title=self.secret_name, subtitle=subtitle,
-                  body=body)
+                  detail=detail)
         path.unlink()
 
 

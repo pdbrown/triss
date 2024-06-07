@@ -33,8 +33,7 @@ def stress_qr_codec(tid, tmp_path):
                     my_path,
                     select_m_shares(n),
                     fmt='QRCODE',
-                    skip_combine_check=True
-                )
+                    skip_combine_check=True)
     except Exception as e:
         global success
         success = False

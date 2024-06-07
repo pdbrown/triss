@@ -23,10 +23,10 @@ def test_qrencode_decode(xs, title, subtitle, tmp_path):
     try:
         assert decoded == xs
     except Exception as e:
-        indata = tmp_path / "input.dat"
-        with indata.open('wb') as f:
-            f.write(xs)
-        outdata = tmp_path / "output.dat"
-        with outdata.open('wb') as f:
-            f.write(decoded)
+        # indata = tmp_path / "input.dat"
+        # with indata.open('wb') as f:
+        #     f.write(xs)
+        # outdata = tmp_path / "output.dat"
+        # with outdata.open('wb') as f:
+        #     f.write(decoded)
         raise e

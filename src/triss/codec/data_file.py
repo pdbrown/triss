@@ -12,12 +12,16 @@ from triss.codec import FragmentHeader, MacHeader, \
     MappingEncoder, AppendingEncoder, Decoder
 from triss.util import eprint
 
-def set_segment_count(path, segment_count):
+def update_fragment_header(path, update_fn):
     with path.open(mode='rb+') as f:
-        header = FragmentHeader.from_bytes(f.read(FragmentHeader.size_bytes()))
-        header.segment_count = segment_count
+        header = FragmentHeader.from_bytes(
+            f.read(FragmentHeader.size_bytes()))
+        update_fn(header)
         f.seek(0)
         f.write(header.to_bytes())
+        f.flush()
+        os.fsync(f.fileno())
+        return header
 
 
 class FileSegmentEncoder(MappingEncoder):
@@ -69,9 +73,11 @@ class FileSegmentEncoder(MappingEncoder):
             f.flush()
             os.fsync(f.fileno())
 
-    def finalize(self, share_id, header):
-        path = self.file_path(share_id, header)
-        set_segment_count(path, self.n_segments)
+    def patch_header(self, share_id, header_key, n_segments):
+        path = self.file_path(share_id, header_key)
+        def set_segment_count(header):
+            header.segment_count = n_segments
+        header = update_fragment_header(path, set_segment_count)
         part_number, part_name = self.next_part_num_name(share_id)
         new_path = path.parent / part_name
         os.replace(path, new_path)
@@ -79,7 +85,6 @@ class FileSegmentEncoder(MappingEncoder):
 
     def post_process(self, share_id, header, part_number, path):
         pass
-
 
 
 class FileEncoder(AppendingEncoder):
@@ -100,6 +105,12 @@ class FileEncoder(AppendingEncoder):
             f.write(fragment)
             f.flush()
             os.fsync(f.fileno())
+
+    def patch_append_size(self, share_id, header_key, appended_byte_count):
+        path = self.mapping_encoder.file_path(share_id, header_key)
+        def update_payload_size(header):
+            header.payload_size += appended_byte_count
+        update_fragment_header(path, update_payload_size)
 
 
 class FileDecoder(Decoder):
