@@ -55,17 +55,30 @@ def cli():
                    "WARNING! There is no guarantee the decoded output matches "
                    "the original input.")
 
+    m = sp.add_parser('identify',
+                      help="Describe a share and check its integrity.")
+    m.add_argument('in_dirs', type=str, nargs='+',
+                   metavar='DIR',
+                   help="one or more directories containing input files to "
+                   "identify")
+    m.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
+                   help="input file format, will guess if omitted")
+
+
     args = parser.parse_args()
     core.python_version_check(args)
+    fmt = args.c or 'ALL'
     if args.verbose:
         util.verbose(True)
     if args.command == 'split':
-        core.do_split(args.i, args.out_dir, output_format=args.c,
+        core.do_split(args.i, args.out_dir, output_format=fmt,
                       m=args.m, n=args.n,
                       secret_name=args.t, skip_combine_check=args.k)
     elif args.command == 'combine':
-        core.do_combine(args.in_dirs, args.o, args.c,
+        core.do_combine(args.in_dirs, args.o, fmt,
                         ignore_mac_error=args.DANGER_allow_invalid)
+    elif args.command == 'identify':
+        core.do_identify(args.in_dirs, fmt)
     else:
         raise ValueError(f"Invalid command: {args.command}")
 

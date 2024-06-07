@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 import subprocess
 
-import qrcode
 from PIL import Image, ImageDraw, ImageFont
 
 from triss import byte_streams, codec, crypto

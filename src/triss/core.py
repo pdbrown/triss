@@ -36,7 +36,11 @@ def python_version_check(args):
         sys.exit(1)
 
 DEFAULT_FORMAT='DATA'
-TRY_DECODERS = [data_file.FileDecoder, qrcode.QRDecoder]
+DECODERS = {
+    'DATA': [data_file.FileDecoder],
+    'QRCODE': [qrcode.QRDecoder],
+    'ALL': [data_file.FileDecoder, qrcode.QRDecoder]
+}
 
 
 def open_input(path):
@@ -161,7 +165,7 @@ def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
         print_exception(e)
         return False
     try:
-        eprint("Try decoding with", decoder.name)
+        decoder.eprint("Try decoding...")
         output_chunks = decoder.decode(ignore_mac_error)
         n_chunks = 0
         with open_output(out_file) as f:
@@ -174,10 +178,10 @@ def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
                 os.fsync(f.fileno())
         if n_chunks > 0:
             if verbose():
-                eprint(f"Successfully decoded with {decoder.name}!")
+                decoder.eprint(f"Successfully decoded!")
             return (True, verbose())  # success, print messages in verbose mode
         else:
-            eprint("Got no output.")
+            decoder.eprint("Produced no output.")
     except MacWarning:
         decoder.eprint(
             "WARNING: Decoded entire input, but unable to verify authenticity "
@@ -186,18 +190,13 @@ def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
             traceback.print_exc()
         return (True, True)  # success, do print errors
     except Exception as e:
-        decoder.eprint("And failed to decode with:")
+        decoder.eprint("Failed to decode with:")
         print_exception(e)
     return False
 
-def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
-    if input_format == 'DATA':
-        decoders = [data_file.FileDecoder]
-    elif input_format == 'QRCODE':
-        decoders = [qrcode.QRDecoder]
-    else:
-        decoders = TRY_DECODERS
 
+def do_combine(dirs, out_file, input_format='ALL', ignore_mac_error=False):
+    decoders = DECODERS[input_format]
     print_errors = True
     if verbose():
         # Don't interfere with stderr
@@ -225,3 +224,28 @@ def do_combine(dirs, out_file, input_format=None, ignore_mac_error=False):
                 eprint(err, end='')
 
     raise RuntimeError(f"Unable to decode data in {iter_str(dirs)}.")
+
+
+def try_identify(decoder_cls, dirs):
+    try:
+        decoder = decoder_cls(dirs)
+    except Exception as e:
+        print(f"Failed to initialize decoder {decoder_cls.__name__}:")
+        print_exception(e, file=sys.stdout)
+        return False
+    try:
+        if decoder.identify():
+            return True
+    except Exception as e:
+        print(f"{decoder.name}: And failed to identify with:")
+        print_exception(e, file=sys.stdout)
+    return False
+
+
+def do_identify(dirs, input_format='ALL'):
+    decoders = DECODERS[input_format]
+    for decoder_cls in decoders:
+        if try_identify(decoder_cls, dirs):
+            return True
+        print("Trying next decoder.")
+    raise RuntimeError(f"Unable to identify all data in {iter_str(dirs)}.")

@@ -6,13 +6,6 @@ from collections import defaultdict
 from triss.codec import Header, MappingEncoder, Decoder
 
 
-def header_tuple(header):
-    try:
-        segment_id = header.segment_id
-    except AttributeError:
-        segment_id = -1
-    return (header.tag, header.aset_id, header.fragment_id, segment_id)
-
 class MemoryCodec(MappingEncoder, Decoder):
 
     def __init__(self):
@@ -24,7 +17,7 @@ class MemoryCodec(MappingEncoder, Decoder):
     # Encoder impl
     def write(self, share_id, header, fragment):
         data = header.to_bytes() + fragment
-        k = header_tuple(header)
+        k = header.to_key()
         self.parts[k] = data
         self.shares[share_id].append(k)
 
@@ -32,7 +25,7 @@ class MemoryCodec(MappingEncoder, Decoder):
         self.write(share_id, header, b''.join(mac_data_stream))
 
     def patch_header(self, share_id, header_key, n_segments):
-        k = header_tuple(header_key)
+        k = header_key.to_key()
         data = self.parts[k]
         header, _ = Header.parse([data])
         header.segment_count = n_segments

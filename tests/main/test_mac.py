@@ -26,8 +26,8 @@ def test_hmac_512(tmp_path):
         decoder = FileDecoder(shares)
         assert list(resize_seqs(4, decoder.decode())) == data
         first_aset_macs = next(iter(decoder.reference_macs.values()))
-        first_segment_macs = next(iter(first_aset_macs.values()))
-        mac = first_segment_macs[0]  # 1st fragment
+        first_fragment_macs = next(iter(first_aset_macs.values()))
+        mac = next(iter(first_fragment_macs.values()))
         assert mac.algorithm == "hmac-sha512"
         assert len(mac.key) == 512 // 8
         assert len(mac.digest) == 512 // 8
