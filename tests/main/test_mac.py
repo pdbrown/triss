@@ -25,7 +25,7 @@ def test_hmac_512(tmp_path):
         shares = [tmp_path / f"share-{i}" for i in aset]
         decoder = FileDecoder(shares)
         assert list(resize_seqs(4, decoder.decode())) == data
-        first_aset_macs = next(iter(decoder.loaded_macs.values()))
+        first_aset_macs = next(iter(decoder.reference_macs.values()))
         first_segment_macs = next(iter(first_aset_macs.values()))
         mac = first_segment_macs[0]  # 1st fragment
         assert mac.algorithm == "hmac-sha512"

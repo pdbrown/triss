@@ -87,6 +87,8 @@ def assert_byte_streams_equal(bs_x, bs_y, err_msg="Byte streams not equal!"):
             pass
 
 def assert_all_authorized_sets_combine(in_file, out_dir, m, input_format):
+    eprint("Running combine check to ensure input can be recovered by "
+           "combining split shares.")
     with tempfile.TemporaryDirectory() as d:
         for share_dirs in authorized_share_sets(out_dir, m):
             f = Path(d) / "check_output"
@@ -103,11 +105,11 @@ def assert_all_authorized_sets_combine(in_file, out_dir, m, input_format):
                     err_msg=("Combine check failed! Result of combining "
                              "shares is not equal to original input."))
             f.unlink()
-
     if not in_file:
-        eprint("Warning: Requested combine-check after splitting, but data "
-               "was provided on stdin, so can't confirm integrity of "
-               "combined result.")
+        raise RuntimeError(
+            "Warning: Requested combine check after splitting, but data "
+            "was provided on stdin, so can't confirm integrity of "
+            "combined result.")
 
 
 def do_split(in_file, out_dir, output_format=DEFAULT_FORMAT, m=2, n=2,
@@ -120,15 +122,30 @@ def do_split(in_file, out_dir, output_format=DEFAULT_FORMAT, m=2, n=2,
         raise ValueError(f"Unknown output format {output_format}.")
 
     m = m or n
+
+    if verbose():
+        # Don't interfere with stderr
+        cm = contextlib.nullcontext(None)
+    else:
+        # Suppress stderr, only print it if there was an error.
+        cm = contextlib.redirect_stderr(io.StringIO())
+
     try:
-        encoder.encode(read_buffered(in_file), m, n)
+        with cm as captured_err:
+            encoder.encode(read_buffered(in_file), m, n)
+            if hasattr(os, 'sync'):
+                os.sync()
+            if not skip_combine_check:
+                assert_all_authorized_sets_combine(in_file, out_dir, m, output_format)
+            eprint("Split input successfully!")
     except Exception as e:
+        if hasattr(captured_err, 'getvalue'):
+            err = captured_err.getvalue()
+            if err:
+                eprint(err, end='')
         raise Exception(
             f"Failed to split secret in {output_format} format.") from e
-    if not skip_combine_check:
-        assert_all_authorized_sets_combine(in_file, out_dir, m, output_format)
-    if hasattr(os, 'sync'):
-        os.sync()
+
 
 
 def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):

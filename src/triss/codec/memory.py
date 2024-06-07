@@ -37,6 +37,7 @@ class MemoryCodec(MappingEncoder, Decoder):
         header, _ = Header.parse([data])
         header.segment_count = n_segments
         self.parts[k] = header.to_bytes() + data[header.size_bytes():]
+        return header
 
     # Decoder impl
     def use_authorized_set(self, share_ids):

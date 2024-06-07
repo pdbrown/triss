@@ -207,6 +207,8 @@ class Encoder:
 
         self.n_asets = crypto.num_asets(m, n)
         self.n_asets_per_share = crypto.num_asets_per_share(m, n)
+        # aset_id -> fragment_id -> KeyedMacs(frag_key, segment_id -> hmac)
+        # list[list[KeyedMacs(key, list[hmac])]]
         self.macs = [[KeyedMacs(crypto.new_mac_key(mac_algorithm), [])
                       for _fragment_id
                       in range(m)]
@@ -240,11 +242,34 @@ class Encoder:
                mac_algorithm=DEFAULT_MAC_ALGORITHM):
         self.configure(m, n, mac_algorithm)
         authorized_sets = crypto.m_of_n_access_structure(m, n)
+        # Split data segments into fragments, grouping them into shares.
         n_segments = self.encode_segments(
             secret_data_segments, m, n, authorized_sets)
         if n_segments == 0:
             return
         self.summary(n_segments)
+        # Patch FragmentHeaders now that the total number of segments is known.
+        # Also add header bytes into MACed data.
+        for segment_id in range(n_segments):
+            for aset in authorized_sets:
+                aset_id = aset['aset_id']
+                for fragment_id, share_id in enumerate(aset['share_ids']):
+                    fragment_macs = self.macs[aset_id][fragment_id]
+                    header = self.patch_header(
+                        share_id,
+                        FragmentHeader(aset_id=aset_id,
+                                       fragment_id=fragment_id,
+                                       segment_id=segment_id),
+                        n_segments)
+                    if header is not None:
+                        try:
+                            mac = fragment_macs.macs[segment_id]
+                        except KeyError:
+                            mac = None
+                        if mac:
+                            mac.update(header.to_bytes())
+
+        # Finally write MACs after all headers are patched.
         for aset in authorized_sets:
             aset_id = aset['aset_id']
             for fragment_id, share_id in enumerate(aset['share_ids']):
@@ -260,13 +285,6 @@ class Encoder:
                               algorithm=self.mac_algorithm),
                     self.aset_mac_byte_stream(aset_id, fragment_id,
                                               n_segments))
-                for segment_id in range(n_segments):
-                    self.patch_header(
-                        share_id,
-                        FragmentHeader(aset_id=aset_id,
-                                       segment_id=segment_id,
-                                       fragment_id=fragment_id),
-                        n_segments)
 
 
 class MappingEncoder(Encoder):
@@ -275,10 +293,10 @@ class MappingEncoder(Encoder):
         raise NotImplementedError()
 
     def add_mac(self, aset_id, fragment_id, fragment):
-        share_mac = self.macs[aset_id][fragment_id]
-        mac = crypto.new_mac(share_mac.key, self.mac_algorithm)
+        fragment_macs = self.macs[aset_id][fragment_id]
+        mac = crypto.new_mac(fragment_macs.key, self.mac_algorithm)
         mac.update(fragment)
-        share_mac.macs.append(mac)
+        fragment_macs.macs.append(mac)
 
     def encode_segments(self, secret_data_segments, m, n, authorized_sets):
         n_segments = 0
@@ -358,7 +376,8 @@ class AppendingEncoder(Encoder):
     def patch_header(self, share_id, header_key, n_segments):
         k = (header_key.aset_id, header_key.fragment_id)
         self.patch_append_size(share_id, header_key, self.byte_counts[k])
-        self.mapping_encoder.patch_header(share_id, header_key, n_segments)
+        return self.mapping_encoder.patch_header(
+            share_id, header_key, n_segments)
 
 
 
@@ -368,7 +387,7 @@ class AppendingEncoder(Encoder):
 class MacWarning(Exception):
     pass
 
-LoadedMac = namedtuple("LoadedMac", ["key", "digest", "algorithm"])
+ReferenceMac = namedtuple("ReferenceMac", ["key", "digest", "algorithm"])
 TaggedInput = namedtuple("TaggedInput", ["header", "handle"])
 
 def frag_header_keyfn(tagged_input):
@@ -450,6 +469,19 @@ class Decoder:
                 f"Unknown header type {type(header).__name__}.")
 
     def load(self):
+        # segment_id -> fragment_id -> TaggedInput(FragmentHeader, Path)
+        # dict[segment_id, list[TaggedInput(FragmentHeader, Path)]]
+        self.frags_by_segment = defaultdict(list)
+
+        # aset_id -> fragment_id -> part_id -> TaggedInput(MacHeader, Path)
+        # dict[aset_id,
+        #      dict[fragment_id, dict[part_id, TaggedInput(MacHeader Path)]]]
+        self.mac_parts = defaultdict(lambda: defaultdict(dict))
+
+        # aset_id -> segment_id -> fragment_id -> ReferenceMac
+        # dict[aset_id, dict[segment_id, list[ReferenceMac]]]
+        self.reference_macs = defaultdict(dict)
+
         for handle, input_stream in self.input_streams():
             try:
                 header, input_stream = Header.parse(input_stream)
@@ -492,7 +524,7 @@ class Decoder:
         return True
 
     def authorized_set(self, segment_id, segment):
-        """Return sequence of tagged fragments of an authorized set."""
+        """Return sequence of TaggedInputs of an authorized set."""
         asets = defaultdict(dict)
         if not segment:
             raise ValueError(
@@ -515,6 +547,9 @@ class Decoder:
             f"for segment {segment_id=}")
 
     def fragments(self, authorized_set):
+        """Return iterator over chunks of fragments of AUTHORIZED_SET.
+
+        AUTHORIZED_SET is collection of TaggedInputs."""
         input_streams = [
             byte_streams.resize_seqs(
                 self.fragment_read_size,
@@ -572,18 +607,18 @@ class Decoder:
                 payload += chunk
         return (header0, payload)
 
-    def index_macs(self, headers_keys, mac_data, fragment_count, aset_id):
+    def index_macs(self, frag_keys_algos, mac_data, fragment_count, aset_id):
         cursor = 0
         for segment_id in range(self.segment_count):
-            assert segment_id not in self.loaded_macs[aset_id]
+            assert segment_id not in self.reference_macs[aset_id]
             macs = []
-            self.loaded_macs[aset_id][segment_id] = macs
+            self.reference_macs[aset_id][segment_id] = macs
             for fragment_id in range(fragment_count):
-                (header, key) = headers_keys[fragment_id]
-                digest_size = crypto.digest_size_bytes(header.algorithm)
+                (key, algo) = frag_keys_algos[fragment_id]
+                digest_size = crypto.digest_size_bytes(algo)
                 digest = mac_data[cursor:cursor+digest_size]
                 cursor += digest_size
-                macs.append(LoadedMac(key, digest, header.algorithm))
+                macs.append(ReferenceMac(key, digest, algo))
         if cursor != len(mac_data):
             self.eprint(
                 f"Warning: Finished reading {cursor} bytes of MAC digest data "
@@ -601,7 +636,7 @@ class Decoder:
             return macs
 
         try:
-            return ensure_mac_count(self.loaded_macs[aset_id][segment_id])
+            return ensure_mac_count(self.reference_macs[aset_id][segment_id])
         except KeyError:
             pass
         try:
@@ -628,9 +663,15 @@ class Decoder:
             mac_data = data[header.key_size_bytes:]
             return (header, key, mac_data)
 
+        # Every fragment of the aset should include a full copy of the mac_data
+        # of this aset: the concatenated MACs of all segments of all fragments
+        # of this aset. These copies should all be identical, so compare them
+        # all that of fragment 0.
         fragment_id = 0
         (header0, key0, mac_data0) = fragment_mac_info(fragment_id)
-        infos = [(header0, key0)]
+        # In addition to the mac_data for the whole aset, each fragment
+        # includes the key for its own MACs in the aset.
+        frag_keys_algos = [(key0, header0.algorithm)]
 
         for fragment_id in range(1, fragment_count):
             (header, key, mac_data) = fragment_mac_info(fragment_id)
@@ -642,9 +683,9 @@ class Decoder:
                     "each fragment of the authorized set, but the copy of the "
                     "MACs assigned to the share of the reported fragment does "
                     "not match the others.")
-            infos.append((header, key))
-        self.index_macs(infos, mac_data0, fragment_count, aset_id)
-        return ensure_mac_count(self.loaded_macs[aset_id][segment_id])
+            frag_keys_algos.append((key, header.algorithm))
+        self.index_macs(frag_keys_algos, mac_data0, fragment_count, aset_id)
+        return ensure_mac_count(self.reference_macs[aset_id][segment_id])
 
     def combine_fragments(self, authorized_set, segment_id,
                           ignore_mac_error=False):
@@ -674,35 +715,45 @@ class Decoder:
         # zip(fragments, macs) pairs each fragment with the matching MAC.
         authorized_set = sorted(authorized_set,
                                 key=lambda tf: tf.header.fragment_id)
+        # Each fragment header in authorized_set has the same aset_id and
+        # payload_size, so read the first one.
         aset_id = authorized_set[0].header.aset_id
         payload_size = authorized_set[0].header.payload_size
         try:
-            loaded_macs = self.load_macs(aset_id, segment_id,
+            reference_macs = self.load_macs(aset_id, segment_id,
                                          len(authorized_set))
         except Exception as e:
             mac_error(
                 f"Failed to load MACs while decoding segment {segment_id=} "
                 f"with authorized set {aset_id=}",
                 cause=e)
-            loaded_macs = []
+            reference_macs = []
 
         n_bytes = 0
         computed_macs = [crypto.new_mac(mac.key, mac.algorithm)
                          for mac
-                         in loaded_macs]
+                         in reference_macs]
+        # Produce sequence of combined outputs, updating MACs along the way.
         for fragment_chunks in self.fragments(authorized_set):
             for (frag_chunk, mac) in zip(fragment_chunks, computed_macs):
                 mac.update(frag_chunk)
             output_chunk = crypto.combine_fragments(fragment_chunks)
             n_bytes += len(output_chunk)
             yield output_chunk
+        # Finally add Header bytes into MACs
+        for tf, mac in zip(authorized_set, computed_macs):
+            mac.update(tf.header.to_bytes())
+        # Report length mismatch to give better error feedback. This isn't
+        # strictly necessary because a bad length will cause the MAC validation
+        # to fail, and HMAC is not vulnerable to length extension attack.
         if payload_size != n_bytes:
             raise ValueError(
                 f"Expected to decode {payload_size} bytes, but decoded "
                 f"{n_bytes} bytes of {segment_id=} of authorized set "
                 f"{aset_id=}")
+        # Finally validate MACs.
         for fragment_id, (loaded_mac, computed_mac) in enumerate(
-                zip(loaded_macs, computed_macs)):
+                zip(reference_macs, computed_macs)):
             if not crypto.digests_equal(loaded_mac.digest,
                                         computed_mac.digest()):
                 mac_error(
@@ -712,13 +763,6 @@ class Decoder:
 
     # Entrypoint
     def decode(self, ignore_mac_error=False):
-        # segment_id -> [TaggedInput]
-        self.frags_by_segment = defaultdict(list)
-        # aset_id -> fragment_id -> part_id -> TaggedInput
-        self.mac_parts = defaultdict(lambda: defaultdict(dict))
-        # aset_id -> segment_id -> [LoadedMac] in fragment_id order
-        self.loaded_macs = defaultdict(dict)
-
         macs_valid = True
         try:
             self.load()

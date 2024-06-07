@@ -82,6 +82,7 @@ class FileSegmentEncoder(MappingEncoder):
         new_path = path.parent / part_name
         os.replace(path, new_path)
         self.post_process(share_id, header, part_number, new_path)
+        return header
 
     def post_process(self, share_id, header, part_number, path):
         pass
