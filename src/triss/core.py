@@ -74,6 +74,7 @@ def authorized_share_sets(share_parent_dir, m):
     share_dirs = Path(share_parent_dir).iterdir()
     return itertools.combinations(share_dirs, m)
 
+
 def assert_byte_streams_equal(bs_x, bs_y, err_msg="Byte streams not equal!"):
     bs_x = resize_seqs(4096, bs_x)
     bs_y = resize_seqs(4096, bs_y)
@@ -91,8 +92,7 @@ def assert_byte_streams_equal(bs_x, bs_y, err_msg="Byte streams not equal!"):
             pass
 
 def assert_all_authorized_sets_combine(in_file, out_dir, m, input_format):
-    eprint("Running combine check to ensure input can be recovered by "
-           "combining split shares.")
+    eprint("Ensuring input can be recovered by combining split shares.")
     with tempfile.TemporaryDirectory() as d:
         for share_dirs in authorized_share_sets(out_dir, m):
             f = Path(d) / "check_output"
@@ -100,20 +100,18 @@ def assert_all_authorized_sets_combine(in_file, out_dir, m, input_format):
                 do_combine(share_dirs, f, input_format)
             except Exception as e:
                 raise AssertionError(
-                    "Combine check failed! Unable to combine shares in "
+                    "Failed! Unable to combine shares in "
                     f"{iter_str(share_dirs)}.") from e
+            # If input was from a file, check that it's identical to the
+            # combined output. This is a redundant sanity check, since
+            # do_combine already verifies integrity by checking HMACs.
             if in_file:
                 assert_byte_streams_equal(
                     read_buffered(in_file),
                     read_buffered(f),
-                    err_msg=("Combine check failed! Result of combining "
-                             "shares is not equal to original input."))
+                    err_msg=("Failed! Result of combining shares is not "
+                             "equal to original input."))
             f.unlink()
-    if not in_file:
-        raise RuntimeError(
-            "Warning: Requested combine check after splitting, but data "
-            "was provided on stdin, so can't confirm integrity of "
-            "combined result.")
 
 
 def do_split(in_file, out_dir, output_format=DEFAULT_FORMAT, m=2, n=2,
@@ -202,7 +200,7 @@ def do_combine(dirs, out_file, input_format='ALL', ignore_mac_error=False):
         # Don't interfere with stderr
         cm = contextlib.nullcontext(None)
     else:
-        # Suppress stderr, only print it if none of the decoders ar successful.
+        # Suppress stderr, only print it if none of the decoders are successful.
         cm = contextlib.redirect_stderr(io.StringIO())
     try:
         with cm as captured_err:
