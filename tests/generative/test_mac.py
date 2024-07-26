@@ -14,10 +14,10 @@ from .gen_common import m_and_n
 from .. import helpers
 
 from triss.byte_streams import resize_seqs
-from triss.codec import Header, IntField, StrField
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder
 from triss.codec.qrcode import QR_DATA_SIZE_BYTES, QREncoder, QRDecoder
+from triss.header import Header, IntField, StrField
 
 def flip_bit(shares):
     share = random.choice(shares)

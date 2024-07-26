@@ -11,15 +11,16 @@ import subprocess
 from PIL import Image, ImageDraw, ImageFont
 
 from triss import byte_streams, codec, crypto
-from triss.codec import FragmentHeader, MacHeader, Encoder
+from triss.codec import Encoder
 from triss.codec.data_file import FileSegmentEncoder, FileDecoder
+from triss.header import FragmentHeader, MacHeader
 from triss.util import eprint, div_up
 
 mimetypes.init()
 
-# From https://www.qrcode.com/en/about/version.html
-# Set QR_SIZE_MAX_BYTES to be size of largest QR code with highest error
-# correction enabled: Version 40, ECC level "High"
+# QR_SIZE_MAX_BYTES is size of largest QR code with highest error correction
+# enabled: Version 40, ECC level "High"
+# See also https://www.qrcode.com/en/about/version.html
 QR_SIZE_MAX_BYTES = 1273
 QR_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - FragmentHeader.size_bytes()
 QR_MAC_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - MacHeader.size_bytes()
@@ -143,12 +144,12 @@ def add_caption(img, title, subtitle="", detail=""):
         cursor = add_xy(cursor, (0, subtitle_h + y_margin))
     if detail:
         d.text(cursor, detail, fill='black', font=detail_font, spacing=spacing)
-    line_y = h - 1  # bottom of image
+    line_y = h - 1  # bottom of caption image
     d.line(((MARGIN, line_y), (w - MARGIN, line_y)), 'gray')
 
     captioned = merge_img_y(capt, img)
     # Add enough vertical padding to make image square so it prints in portrait
-    # by default.
+    # orientation by default.
     return pad_vertical(captioned)
 
 

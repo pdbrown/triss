@@ -9,10 +9,10 @@ from pathlib import Path
 from .. import helpers
 
 from triss.byte_streams import resize_seqs
-from triss.codec import Header, FragmentHeader
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder
 from triss.codec.qrcode import QREncoder, QRDecoder
+from triss.header import Header, FragmentHeader
 
 def test_fragment_header():
     h = FragmentHeader(aset_id=1,

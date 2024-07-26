@@ -9,10 +9,11 @@ from pathlib import Path
 from .. import helpers
 
 from triss.byte_streams import resize_seqs
-from triss.codec import Header, FragmentHeader, MacHeader, MacWarning, qrcode
+from triss.codec import MacWarning, qrcode
 from triss.codec.memory import MemoryCodec
 from triss.codec.data_file import FileEncoder, FileDecoder
 from triss.codec.qrcode import QREncoder, QRDecoder
+from triss.header import Header, FragmentHeader, MacHeader
 
 def test_hmac_512(tmp_path):
     algo = "hmac-sha512"

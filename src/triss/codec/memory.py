@@ -3,8 +3,8 @@
 
 from collections import defaultdict
 
-from triss.codec import Header, MappingEncoder, Decoder
-
+from triss.codec import MappingEncoder, Decoder
+from triss.header import Header
 
 class MemoryCodec(MappingEncoder, Decoder):
 

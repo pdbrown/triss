@@ -8,186 +8,9 @@ import sys
 
 from triss import byte_streams
 from triss import crypto
+from triss.header import Header, FragmentHeader, MacHeader
 from triss.util import eprint, print_exception, verbose
 
-
-###############################################################################
-# Header
-
-class Field:
-    def __init__(self, name, size, default=None):
-        """
-        A Header field NAME that converts to SIZE bytes when serialized.
-        """
-        self.name = name
-        self.size = size
-        if default is not None:
-            self.default = default
-
-    def __repr__(self):
-        return f"{type(self).__name__}({self.name}, {self.size})"
-
-def fields_by_name(*fields):
-    return {f.name: f for f in fields}
-
-class IntField(Field):
-    default = 0
-    def parse(self, data):
-        return int.from_bytes(data[0:self.size], byteorder='big', signed=False)
-
-    def generate(self, x):
-        return x.to_bytes(length=self.size, byteorder='big', signed=False)
-
-class BytesField(Field):
-    default = b''
-    def parse(self, data):
-        return data[0:self.size]
-
-    def generate(self, data):
-        if len(data) > self.size:
-            raise ValueError(
-                f"Got {len(data)} bytes, which is too many to generate "
-                f"{self}.")
-        zpadding = b'\0' * (self.size - len(data))
-        return data + zpadding
-
-class StrField(BytesField):
-    default = ""
-    def parse(self, data):
-        return super().parse(data).decode('utf-8').rstrip("\0")
-
-    def generate(self, s):
-        return super().generate(s.encode('utf-8'))
-
-class Header:
-    def __init__(self, **info):
-        """
-        Construct Header given INFO kwargs.
-
-        INFO holds header data as typed objects (not just byte arrays), and is
-        keyed by field names. Retrieve header bytes with get_bytes or to_bytes.
-        """
-        for k in self.__fields__:
-            v = info.get(k, self.__fields__[k].default)
-            setattr(self, k, v)
-            # Assert values in range. get_bytes throws an OverflowError if
-            # value is to big to convert.
-            self.get_bytes(k)
-
-    def __repr__(self):
-        fields = [f"{k}={getattr(self, k)}" for k in self.__fields__]
-        return f"{type(self).__name__}({', '.join(fields)})"
-
-    def __iter__(self):
-        for k in self.__fields__:
-            yield getattr(self, k)
-
-    def get_bytes(self, k):
-        """Return value of field K as byte array."""
-        v = getattr(self, k)
-        return self.__fields__[k].generate(v)
-
-    def to_bytes(self):
-        """Return header as byte array."""
-        data = bytes(itertools.chain.from_iterable(
-            [self.get_bytes(k) for k in self.__fields__]))
-        return data + crypto.fletchers_checksum_16(data)
-
-    def to_key(self):
-        return tuple(getattr(self, k) for k in self.__key_fields__)
-
-    @classmethod
-    def size_bytes(cls):
-        # Length of all fields + 2 bytes for checksum.
-        return sum(field.size for field in cls.__fields__.values()) + 2
-
-    @classmethod
-    def from_bytes(cls, data):
-        """Parse byte array DATA and return instance of Header."""
-        size = cls.size_bytes()
-        if len(data) < size:
-            raise ValueError(
-                f"{cls.__name__}: Can't parse header, got {len(data)} bytes "
-                f"but needed {size} bytes.")
-        data = data[0:size]
-        checksum = bytes(data[-2:])  # last 2 bytes are checksum
-        payload = bytes(data[0:-2])  # first n-2 bytes are payload
-        if crypto.fletchers_checksum_16(payload) != checksum:
-            raise ValueError(
-                f"{cls.__name__}: Refusing to parse header with bad checksum.")
-        info = {}
-        i = 0
-        for k, field in cls.__fields__.items():
-            info[k] = field.parse(payload[i:i+field.size])
-            i += field.size
-        tag = cls.__fields__['tag'].default
-        if info['tag'] != tag:
-            raise ValueError(
-                f"{cls.__name__}: Header tag is not {tag.decode('utf-8')}: is "
-                "this a triss file?")
-        version = cls.__fields__['version'].default
-        if info['version'] != version:
-            raise ValueError(
-                f"{cls.__name__}: Incompatible header version, got "
-                f"{info['version']} but expected {version}")
-        return cls(**info)
-
-    @staticmethod
-    def parse(byte_stream):
-        """
-        Parse a Header from BYTE_STREAM, an iterable of byte sequences.
-
-        Return tuple of header and rest of BYTE_STREAM.
-        """
-        exceptions = []
-        byte_stream = iter(byte_stream)
-        for header_cls in Header.__subclasses__():
-            try:
-                chunk, byte_stream = byte_streams.take_and_drop(
-                    header_cls.size_bytes(), byte_stream)
-            except StopIteration as e:
-                raise ValueError("No data available.") from e
-            if not chunk:
-                raise ValueError("No data available.")
-            try:
-                return (header_cls.from_bytes(chunk), byte_stream)
-            except ValueError as e:
-                exceptions.append(e)
-                # Push chunk back onto byte stream and try again
-                byte_stream = itertools.chain([chunk], byte_stream)
-        raise ExceptionGroup("Data doesn't match any Header format.",
-                             exceptions)
-
-
-class FragmentHeader(Header):
-    __fields__ = fields_by_name(
-        BytesField("tag", 9, b'trissfrag'),
-        IntField("version", 1, 1),
-        IntField("payload_size", 4),
-        IntField("aset_id", 4),
-        IntField("segment_id", 4),
-        IntField("segment_count", 4),
-        IntField("fragment_id", 4),
-        IntField("fragment_count", 4))
-    __key_fields__ = ["tag", "aset_id", "fragment_id", "segment_id"]
-
-class MacHeader(Header):
-    __fields__ = fields_by_name(
-        BytesField("tag", 8, b'trissmac'),
-        IntField("version", 2, 1),
-        IntField("aset_id", 4),
-        # Store key for this fragment.
-        IntField("fragment_id", 4),
-        # Store macs for all fragments of all segments in order of ids
-        IntField("segment_count", 4),
-        IntField("fragment_count", 4),
-        # May need to split MAC data into multiple "slices" (in QRCODE mode).
-        # Analagous to "segments" in FragmentHeader, but don't reuse that name.
-        IntField("part_id", 4),
-        IntField("part_count", 4),
-        IntField("key_size_bytes", 4),
-        StrField("algorithm", 24))
-    __key_fields__ = ["tag", "aset_id", "fragment_id", "part_id"]
 
 
 ###############################################################################
@@ -197,8 +20,16 @@ class MacHeader(Header):
 KeyedMacs = namedtuple("KeyedMacs", ["key", "macs"])
 
 class Encoder:
+    """
+    Encoder abstract base class.
 
-    DEFAULT_MAC_ALGORITHM="hmac-sha384"
+    An Encoder converts plaintext to split, encrypted shares via M-of-N
+    trivial secret sharing with authentication.
+
+    Subclasses must override at least encode_segments().
+    """
+
+    DEFAULT_MAC_ALGORITHM = "hmac-sha384"
 
     def configure(self, m, n, mac_algorithm):
         if m < 2 or n < 2:
@@ -222,19 +53,49 @@ class Encoder:
         self.mac_key_size_bytes = len(self.macs[0][0].key)
 
     def encode_segments(self, secret_data_segments, m, n, authorized_sets):
+        """
+        Split secret into shares.
+
+        Take an iterator over SECRET_DATA_SEGMENTS (byte sequences), split them
+        into shares according to the AUTHORIZED_SETS determined by values of M
+        and N which specify an M-of-N secret sharing scheme. See also
+        triss.crypto.
+        """
         raise NotImplementedError()
 
     def summary(self, n_segments):
+        """
+        Called after encode_segments(), at which point total number of
+        segments is known.
+        """
         self.n_segments = n_segments
 
-    def write_macs(self, share_id, header, mac_data_stream):
-        pass
-
     def patch_header(self, share_id, header_key, n_segments):
+        """
+        Called after summary(), once for each fragment.
+
+        Allows implementing class to patch (update) headers with n_segments.
+        SHARE_ID and HEADER_KEY uniquely identify a fragment. HEADER_KEY is an
+        object with aset_id, fragment_id, and segment_id properties.
+        """
         pass
 
-    # Helpers
+    def write_macs(self, share_id, header, mac_data_stream):
+        """
+        Called after all headers are patched, once for each MAC output.
+
+        Allows implementing class to emit MACs. MAC_DATA_STREAM is an iterator
+        over byte sequences.
+        """
+        pass
+
     def aset_mac_byte_stream(self, aset_id, fragment_id, n_segments):
+        """
+        Return generator that yields byte sequences of MAC data
+
+        for all fragments of all segments of authorized set aset_id, and
+        includes the MAC key for fragment fragment_id.
+        """
         aset_macs = self.macs[aset_id]
         yield aset_macs[fragment_id].key
         for segment_id in range(n_segments):
@@ -293,8 +154,17 @@ class Encoder:
 
 
 class MappingEncoder(Encoder):
+    """
+    A MappingEncoder produces a set of split, encrypted outputs for each
+    input segment.
+
+    Subclasses must override at least write().
+    """
 
     def write(self, share_id, header, fragment):
+        """
+        Write a FRAGMENT with HEADER to share SHARE_ID.
+        """
         raise NotImplementedError()
 
     def add_mac(self, aset_id, fragment_id, fragment):
@@ -322,7 +192,17 @@ class MappingEncoder(Encoder):
                     self.add_mac(aset_id, fragment_id, fragment)
         return n_segments
 
+
 class AppendingEncoder(Encoder):
+    """
+    An AppendingEncoder produces one set of split, encrypted outputs
+
+    to which fragments, of all split input segments after the first, are
+    appended. This class defers most of its work to a MappingEncoder it owns,
+    but adds append-specific features.
+
+    Subclasses must override at least append() and patch_append_size().
+    """
 
     def __init__(self, mapping_encoder):
         self.mapping_encoder = mapping_encoder
@@ -338,9 +218,23 @@ class AppendingEncoder(Encoder):
         self.byte_counts = defaultdict(int)
 
     def append(self, share_id, aset_id, fragment_id, fragment):
+        """
+        Append FRAGMENT byte sequence to the output identified by SHARE_ID,
+        ASET_ID, and FRAGMENT_ID.
+        """
         raise NotImplementedError()
 
     def patch_append_size(self, share_id, header_key, appended_byte_count):
+        """
+        Called after summary(), once for each fragment within
+        patch_append_header().
+
+        Allows implementing class to patch (update) headers to include a total
+        byte count: the headers original payload_size plus the
+        APPENDED_BYTE_COUNT. SHARE_ID and HEADER_KEY uniquely identify a
+        fragment. HEADER_KEY is an object with aset_id, fragment_id, and
+        segment_id properties.
+        """
         raise NotImplementedError()
 
     def update_mac(self, aset_id, fragment_id, fragment):
@@ -411,20 +305,36 @@ def validate_header_attr(tagged_input, attr, expect):
 
 
 class Decoder:
+    """
+    Decoder abstract base class.
+
+    A Decoder combines shares of a secret produced by an Encoder and recovers
+    the original input. It scans available secret share fragments and attempts
+    to parse their Headers to discover complete authorized sets that can be
+    decoded and concatenated to recover the original input.
+
+    Subclasses must override at least input_streams() and payload_stream().
+    """
 
     def __init__(self, *, fragment_read_size=(4096*16)):
         self.fragment_read_size = fragment_read_size
         self.name = type(self).__name__
 
     def input_streams(self):
-        """Return iterator over (handle, input_stream) pairs."""
+        """
+        Return iterator over (handle, input_stream) pairs.
+
+        The input_stream is an iterator over byte sequences, and the handle is
+        an object that describes the source of the input_stream.
+        """
         raise NotImplementedError()
 
     def payload_stream(self, tagged_input):
         """
-        Return iterator over data chunks of payload of TAGGED_INPUT.
+        Return iterator over byte sequences of payload of TAGGED_INPUT.
 
-        I.e. skip the header, then return rest of data.
+        I.e. skip the header, then return rest of data. TAGGED_INPUT is a
+        TaggedInput namedtuple, a pair of (header, handle).
         """
         raise NotImplementedError()
 
@@ -576,6 +486,13 @@ class Decoder:
 
     def combine_fragments(self, authorized_set, segment_id,
                           ignore_mac_error=False):
+        """
+        Combine fragments of AUTHORIZED_SET for segment SEGMENT_ID.
+
+        Return a generator that yields chunks of reconstructed secret and
+        returns True if MACs are valid. AUTHORIZED_SET is a collection of
+        TaggedInputs.
+        """
         if not authorized_set:
             raise ValueError(
                 "Authorized set is empty (contains no fragments), so there "
@@ -666,6 +583,11 @@ class Decoder:
     ### Indentify implementation
 
     def identify_segment(self, segment_id, segment):
+        """
+        Print details about SEGMENT SEGMENT_ID.
+
+        SEGMENT is a collection of TaggedInputs.
+        """
         ok = True
         computed_macs = {}
         aset_ids = sorted({frag.header.aset_id for frag in segment})
@@ -759,6 +681,12 @@ class Decoder:
 
 
 class MacLoader:
+    """
+    A MacLoader is a helper used by a Decoder to parse and load MAC keys
+    and digests included with shares of a split secret. It uses a reference to
+    the decoder to locate MAC files and makes an index of loaded reference_macs
+    available to the decoder.
+    """
 
     def __init__(self, decoder):
         self.decoder = decoder
@@ -821,11 +749,11 @@ class MacLoader:
 
         DATA is obtained by concatenating payloads of Mac parts, each of which
         has a header. HEADER is one of these Mac part headers (any one of them
-        will work, only need Mac metadata which is replicated in each header).
-        DATA is a byte sequence, a Mac key followed by digests for (all
-        segments of) all fragments of an aset. The HEADER identifies which
-        fragment (thus which share) the key is for. The key is bundled with
-        digests for the fragment, and returned in OWN_MACS. All digests
+        will do, only need Mac metadata which is replicated in each header).
+        DATA is a byte sequence, a Mac key followed by digests for all
+        fragments of all segments of an authorized set. The HEADER identifies
+        which fragment (thus which share) the key is for. The key is bundled
+        with digests for the fragment, and returned in OWN_MACS. All digests
         (including those in OWN_MACS) are returned in DIGESTS.
         """
         data = memoryview(data)
@@ -855,7 +783,8 @@ class MacLoader:
         """
         Every fragment of the aset should include a full, identical copy of the
         MAC digests for all segments of all fragments of the aset.
-          DIGEST_INDEX is (segmgent_id, fragment_id) -> bytes
+          DIGEST_INDEX is (segmgent_id, fragment_id) -> bytes.
+          DIGEST_INDEX0 is the same shape as DIGEST_INDEX and compared to it.
         """
         for fragment_id in range(header.fragment_count):
             for segment_id in range(header.segment_count):
@@ -917,7 +846,8 @@ class MacLoader:
         """
         Ensure SEGMENT_MACS contains an entry for each fragment.
 
-        SEGMENT_MACS is dict of fragment_id -> ReferenceMac.
+        SEGMENT_MACS is dict of fragment_id -> ReferenceMac
+        A ReferenceMac is a namedtuple of key, digest, algorithm.
         """
         if len(segment_macs) != fragment_count:
             raise ValueError(
@@ -929,6 +859,12 @@ class MacLoader:
                     f"Missing MAC for {fragment_id=}.")
 
     def load_macs(self, aset_id, segment_id):
+        """
+        Load MACs for segment SEGMENT_ID of fragments in authorized set ASET_ID.
+
+        Return dict of fragment_id -> ReferenceMac.
+        A ReferenceMac is a namedtuple of key, digest, algorithm.
+        """
         try:
             mac_index = self.reference_macs[aset_id]
         except KeyError:

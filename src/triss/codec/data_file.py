@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 
 from triss import codec
-from triss.codec import FragmentHeader, MacHeader, \
-    MappingEncoder, AppendingEncoder, Decoder
+from triss.codec import MappingEncoder, AppendingEncoder, Decoder
+from triss.header import FragmentHeader, MacHeader
 from triss.util import eprint
 
 def update_fragment_header(path, update_fn):
