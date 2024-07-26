@@ -395,9 +395,19 @@ class MacWarning(Exception):
 ReferenceMac = namedtuple("ReferenceMac", ["key", "digest", "algorithm"])
 TaggedInput = namedtuple("TaggedInput", ["header", "handle"])
 
+
 def frag_header_keyfn(tagged_input):
     h = tagged_input.header
     return (h.aset_id, h.segment_id, h.fragment_id)
+
+
+def validate_header_attr(tagged_input, attr, expect):
+    header, handle = tagged_input
+    attr_val = getattr(header, attr)
+    if attr_val != expect:
+        raise ValueError(
+            f"Inconsistent {attr}. Expected {expect} but got {attr_val} "
+            f"in header of {handle}: {header}")
 
 
 class Decoder:
@@ -444,23 +454,14 @@ class Decoder:
         else:
             pr("No MACs discovered.")
 
-    @staticmethod
-    def validate_header_attr(tagged_input, attr, expect):
-        header, handle = tagged_input
-        attr_val = getattr(header, attr)
-        if attr_val != expect:
-            raise ValueError(
-                f"Inconsistent {attr}. Expected {expect} but got {attr_val} "
-                f"in header of {handle}: {header}")
-
     def ensure_segment_count(self, header, handle):
         if not hasattr(self, 'segment_count'):
             if header.segment_count == 0:
                 raise ValueError(
                     f"Invalid segment_count=0 in header of {handle}: {header}")
             self.segment_count = header.segment_count
-        self.validate_header_attr((header, handle), 'segment_count',
-                                  self.segment_count)
+        validate_header_attr((header, handle), 'segment_count',
+                             self.segment_count)
 
     def register_header(self, header, handle):
         if isinstance(header, FragmentHeader):
@@ -485,8 +486,9 @@ class Decoder:
         #      dict[fragment_id, dict[part_id, TaggedInput(MacHeader Path)]]]
         self.mac_parts = defaultdict(lambda: defaultdict(dict))
 
-        # aset_id -> segment_id -> fragment_id -> ReferenceMac
-        self.reference_macs = {}
+        # mac_loader is a helper class that uses self.payload_stream(...) and
+        # reads self.mac_parts and self.segment_count.
+        self.mac_loader = MacLoader(self)
 
         # Register all inputs from all available shares.
         for handle, input_stream in self.input_streams():
@@ -507,13 +509,270 @@ class Decoder:
         if not self.frags_by_segment or not hasattr(self, 'segment_count'):
             raise RuntimeError("No input found.")
 
-    def validate_mac_header(self, tagged_input, fragment_count, part_count):
+    def segments(self):
+        """Yield lists of TaggedInputs, one list per segment."""
+        segment_id = 0
+        for segment_id in range(self.segment_count):
+            try:
+                segment = self.frags_by_segment[segment_id]
+            except KeyError as e:
+                raise ValueError(
+                    f"Missing segment for {segment_id=}. Expected "
+                    f"{self.segment_count} segments.") from e
+            yield segment
+
+    def is_complete_aset(self, aset, fragment_count):
+        if len(aset) != fragment_count:
+            return False
+        for i in range(fragment_count):
+            if not aset.get(i):
+                self.eprint(
+                    f"Found authorized set of correct size {fragment_count}, "
+                    f"but it is missing fragment_id={i}")
+                return False
+        return True
+
+    def authorized_set(self, segment_id, segment):
+        """Return sequence of TaggedInputs of an authorized set."""
+        asets = defaultdict(dict)
+        if not segment:
+            raise ValueError(
+                f"Segment {segment_id=} is empty (contains no fragments), so "
+                "it's impossible to find an authorized set of fragments to "
+                "decrypt it.")
+        fragment_count = segment[0].header.fragment_count
+        payload_size = segment[0].header.payload_size
+        for tagged_input in segment:
+            validate_header_attr(tagged_input, 'fragment_count',
+                                 fragment_count)
+            validate_header_attr(tagged_input, 'payload_size',
+                                 payload_size)
+            aset = asets[tagged_input.header.aset_id]
+            aset[tagged_input.header.fragment_id] = tagged_input
+            if self.is_complete_aset(aset, fragment_count):
+                return list(aset.values())
+        raise RuntimeError(
+            f"Unable to find complete authorized set of size {fragment_count} "
+            f"for segment {segment_id=}")
+
+    def fragments(self, authorized_set):
+        """Return iterator over chunks of fragments of AUTHORIZED_SET.
+
+        AUTHORIZED_SET is collection of TaggedInputs."""
+        input_streams = [
+            byte_streams.resize_seqs(
+                self.fragment_read_size,
+                self.payload_stream(tagged_input))
+            for tagged_input
+            in authorized_set]
+        while True:
+            chunks = []
+            for stream in input_streams:
+                try:
+                    chunks.append(next(stream))
+                except StopIteration:
+                    return
+            yield chunks
+
+    def combine_fragments(self, authorized_set, segment_id,
+                          ignore_mac_error=False):
+        if not authorized_set:
+            raise ValueError(
+                "Authorized set is empty (contains no fragments), so there "
+                "are no fragments to decrypt.")
+
+        macs_valid = True
+        def mac_error(msg, cause=None):
+            nonlocal macs_valid
+            macs_valid = False
+            if ignore_mac_error:
+                self.eprint(
+                    f"WARNING: {msg}" + (f": {cause}" if cause else ""))
+            else:
+                raise RuntimeError(
+                    f"{self.name}: ERROR: Unable to verify authenticity of "
+                    "output. Aborting any remaining decoding process. Use "
+                    "extreme caution handling any partial output, it "
+                    "may have been modified by an attacker.\n"
+                    f"Reason: {msg}") from cause
+
+        headers = [tf.header for tf in authorized_set]
+
+        # Each fragment header in authorized_set has the same aset_id and
+        # payload_size, so read the first one.
+        aset_id = headers[0].aset_id
+        payload_size = headers[0].payload_size
+        try:
+            reference_macs = self.mac_loader.load_macs(aset_id, segment_id)
+            self.mac_loader.ensure_mac_all_fragments(reference_macs,
+                                                     len(authorized_set))
+        except Exception as e:
+            mac_error(
+                f"Failed to load MACs while decoding segment {segment_id=} "
+                f"with authorized set {aset_id=}",
+                cause=e)
+            reference_macs = {}
+
+        n_bytes = 0
+        computed_macs = {fragment_id: crypto.new_mac(mac.key, mac.algorithm)
+                         for (fragment_id, mac)
+                         in reference_macs.items()}
+        # Produce sequence of combined outputs, updating MACs along the way.
+        for fragment_chunks in self.fragments(authorized_set):
+            for (header, frag_chunk) in zip(headers, fragment_chunks):
+                if computed_macs:
+                    computed_macs[header.fragment_id].update(frag_chunk)
+            output_chunk = crypto.combine_fragments(fragment_chunks)
+            n_bytes += len(output_chunk)
+            yield output_chunk
+        # Finally add Header bytes into MACs
+        if computed_macs:
+            for header in headers:
+                computed_macs[header.fragment_id].update(header.to_bytes())
+        # Report length mismatch to give better error feedback. This isn't
+        # strictly necessary because a bad length will cause the MAC validation
+        # to fail, and HMAC is not vulnerable to length extension attack.
+        if payload_size != n_bytes:
+            raise ValueError(
+                f"Expected to decode {payload_size} bytes, but decoded "
+                f"{n_bytes} bytes of {segment_id=} of authorized set "
+                f"{aset_id=}")
+        # Finally validate MACs.
+        for fragment_id, reference_mac in reference_macs.items():
+            computed_mac = computed_macs[fragment_id]
+            if not crypto.digests_equal(reference_mac.digest,
+                                        computed_mac.digest()):
+                mac_error(
+                    f"MAC digest mismatch for {segment_id=} of {fragment_id=} "
+                    f"authorized set {aset_id=}")
+        return macs_valid
+
+    ## Entrypoint
+    def decode(self, ignore_mac_error=False):
+        macs_valid = True
+        try:
+            self.load()
+        finally:
+            self.print_registered_headers(file=sys.stderr)
+        for segment_id, segment in enumerate(self.segments()):
+            authorized_set = self.authorized_set(segment_id, segment)
+            ret = yield from self.combine_fragments(
+                authorized_set, segment_id, ignore_mac_error)
+            macs_valid = ret and macs_valid
+        if not macs_valid:
+            raise MacWarning()
+
+
+    ### Indentify implementation
+
+    def identify_segment(self, segment_id, segment):
+        ok = True
+        computed_macs = {}
+        aset_ids = sorted({frag.header.aset_id for frag in segment})
+        for aset_id in aset_ids:
+            try:
+                aset_segment_macs = self.mac_loader.load_macs(aset_id,
+                                                              segment_id)
+                computed_macs[aset_id] = {
+                    fragment_id: crypto.new_mac(reference_mac.key,
+                                                reference_mac.algorithm)
+                    for (fragment_id, reference_mac)
+                    in aset_segment_macs.items()}
+            except Exception as e:
+                print("Failed to load MACs while decoding segment "
+                      f"{segment_id=} with authorized set {aset_id=}")
+                print_exception(e, file=sys.stdout)
+                ok = False
+        expected_sizes = [tf.header.payload_size for tf in segment]
+        payload_sizes = [0] * len(segment)
+        # Compute MACs and sizes
+        for fragment_chunks in self.fragments(segment):
+            for i, (frag_chunk, tf) in enumerate(zip(fragment_chunks,
+                                                     segment)):
+                header = tf.header
+                payload_sizes[i] += len(frag_chunk)
+                try:
+                    mac = computed_macs[header.aset_id][header.fragment_id]
+                except KeyError:
+                    ok = False
+                    continue
+                mac.update(frag_chunk)
+        # Check sizes
+        for i, tf in enumerate(segment):
+            print(f"Check payload size of {tf.handle} ...", end='')
+            esz = expected_sizes[i]
+            psz = payload_sizes[i]
+            if esz != psz:
+                tf = segment[i]
+                print(f"\nUnexpected payload size of {psz} bytes, expected "
+                      f"{esz} in header of {tf.handle}: {tf.header}")
+                ok = False
+            else:
+                print(f" ok: {psz} bytes as expected")
+        # Check MACs
+        ref_macs = self.mac_loader.reference_macs
+        for header, handle in segment:
+            print(f"Check MAC digest of {handle} ...", end='')
+            aset_id = header.aset_id
+            fragment_id = header.fragment_id
+            try:
+                reference_mac = ref_macs[aset_id][segment_id][fragment_id]
+            except KeyError:
+                print(
+                    f" no reference MAC available for {segment_id=} of "
+                    f"{fragment_id=} of authorized set {aset_id=}")
+                ok = False
+                continue
+            try:
+                computed_mac = computed_macs[aset_id][fragment_id]
+            except KeyError:
+                print(
+                    f" no computed MAC available for {segment_id=} of "
+                    f"{fragment_id=} of authorized set {aset_id=}")
+                ok = False
+                continue
+            computed_mac.update(header.to_bytes())
+            if crypto.digests_equal(reference_mac.digest, computed_mac.digest()):
+                print(" ok")
+            else:
+                ok = False
+                print(
+                    f"\nERROR: Unable to verify authenticity of {segment_id=} "
+                    f"of {fragment_id=} of authorized set {aset_id=}: "
+                    "Computed MAC digest does not match reference MAC digest. "
+                    "Use extreme caution handling any decoded output, it may "
+                    "have been modified by an attacker.")
+        return ok
+
+    ## Entrypoint
+    def identify(self):
+        ok = True
+        try:
+            self.load()
+        finally:
+            self.print_registered_headers()
+        for segment_id, segment in enumerate(self.segments()):
+            ret = self.identify_segment(segment_id, segment)
+            ok = ret and ok
+        return ok
+
+
+
+class MacLoader:
+
+    def __init__(self, decoder):
+        self.decoder = decoder
+
+        # aset_id -> segment_id -> fragment_id -> ReferenceMac
+        self.reference_macs = {}
+
+    @staticmethod
+    def validate_mac_header(tagged_input, segment_count, fragment_count,
+                            part_count):
         header, handle = tagged_input
-        self.validate_header_attr(tagged_input, 'segment_count',
-                                  self.segment_count)
-        self.validate_header_attr(tagged_input, 'fragment_count',
-                                  fragment_count)
-        self.validate_header_attr(tagged_input, 'part_count', part_count)
+        validate_header_attr(tagged_input, 'segment_count', segment_count)
+        validate_header_attr(tagged_input, 'fragment_count', fragment_count)
+        validate_header_attr(tagged_input, 'part_count', part_count)
         key_size = header.key_size_bytes
         if key_size > crypto.MAX_KEY_SIZE:
             raise ValueError(
@@ -541,12 +800,14 @@ class Decoder:
                     f"{fragment_id=} of authorized set {aset_id=}") from e
         header0 = get_part(0).header
         for part_id in range(part_count):
-            self.validate_mac_header(get_part(part_id), header0.fragment_count,
+            self.validate_mac_header(get_part(part_id),
+                                     self.decoder.segment_count,
+                                     header0.fragment_count,
                                      part_count)
         payload = b''
         for part_id in range(part_count):
             tagged_input = mac_parts[part_id]
-            for chunk in self.payload_stream(tagged_input):
+            for chunk in self.decoder.payload_stream(tagged_input):
                 payload += chunk
         return (header0, payload)
 
@@ -555,17 +816,17 @@ class Decoder:
         """
         Return ReferenceMac objects and digests provided in DATA as tuple
         of 2 dicts: (own_macs, digests).
-        own_macs: segment_id -> ReferenceMac
-        digests:  (segment_id, fragment_id) -> digest<bytes>
+          own_macs: segment_id -> ReferenceMac
+          digests:  (segment_id, fragment_id) -> digest<bytes>
 
         DATA is obtained by concatenating payloads of Mac parts, each of which
         has a header. HEADER is one of these Mac part headers (any one of them
         will work, only need Mac metadata which is replicated in each header).
-        DATA is a Mac key concatenated onto digests for (all segments of) all
-        fragments of an aset. The HEADER identifies which fragment (thus which
-        share) the key is for, and bundles it with digests for the fragment in
-        OWN_MACS. All digests (including those in OWN_MACS) are returned in
-        DIGESTS.
+        DATA is a byte sequence, a Mac key followed by digests for (all
+        segments of) all fragments of an aset. The HEADER identifies which
+        fragment (thus which share) the key is for. The key is bundled with
+        digests for the fragment, and returned in OWN_MACS. All digests
+        (including those in OWN_MACS) are returned in DIGESTS.
         """
         data = memoryview(data)
         key = data[0:header.key_size_bytes]
@@ -677,251 +938,6 @@ class Decoder:
         # So call build_mac_index at top level without a surrounding exception
         # context instead:
         if mac_index is None:
-            mac_index = self.build_mac_index(aset_id, self.mac_parts[aset_id].items())
+            mac_index = self.build_mac_index(
+                aset_id, self.decoder.mac_parts[aset_id].items())
         return mac_index[segment_id]
-
-    def segments(self):
-        """Yield lists of TaggedInputs, one list per segment."""
-        segment_id = 0
-        for segment_id in range(self.segment_count):
-            try:
-                segment = self.frags_by_segment[segment_id]
-            except KeyError as e:
-                raise ValueError(
-                    f"Missing segment for {segment_id=}. Expected "
-                    f"{self.segment_count} segments.") from e
-            yield segment
-
-    def is_complete_aset(self, aset, fragment_count):
-        if len(aset) != fragment_count:
-            return False
-        for i in range(fragment_count):
-            if not aset.get(i):
-                self.eprint(
-                    f"Found authorized set of correct size {fragment_count}, "
-                    f"but it is missing fragment_id={i}")
-                return False
-        return True
-
-    def authorized_set(self, segment_id, segment):
-        """Return sequence of TaggedInputs of an authorized set."""
-        asets = defaultdict(dict)
-        if not segment:
-            raise ValueError(
-                f"Segment {segment_id=} is empty (contains no fragments), so "
-                "it's impossible to find an authorized set of fragments to "
-                "decrypt it.")
-        fragment_count = segment[0].header.fragment_count
-        payload_size = segment[0].header.payload_size
-        for tagged_input in segment:
-            self.validate_header_attr(tagged_input, 'fragment_count',
-                                      fragment_count)
-            self.validate_header_attr(tagged_input, 'payload_size',
-                                      payload_size)
-            aset = asets[tagged_input.header.aset_id]
-            aset[tagged_input.header.fragment_id] = tagged_input
-            if self.is_complete_aset(aset, fragment_count):
-                return list(aset.values())
-        raise RuntimeError(
-            f"Unable to find complete authorized set of size {fragment_count} "
-            f"for segment {segment_id=}")
-
-    def fragments(self, authorized_set):
-        """Return iterator over chunks of fragments of AUTHORIZED_SET.
-
-        AUTHORIZED_SET is collection of TaggedInputs."""
-        input_streams = [
-            byte_streams.resize_seqs(
-                self.fragment_read_size,
-                self.payload_stream(tagged_input))
-            for tagged_input
-            in authorized_set]
-        while True:
-            chunks = []
-            for stream in input_streams:
-                try:
-                    chunks.append(next(stream))
-                except StopIteration:
-                    return
-            yield chunks
-
-    def combine_fragments(self, authorized_set, segment_id,
-                          ignore_mac_error=False):
-        if not authorized_set:
-            raise ValueError(
-                "Authorized set is empty (contains no fragments), so there "
-                "are no fragments to decrypt.")
-
-        macs_valid = True
-        def mac_error(msg, cause=None):
-            nonlocal macs_valid
-            macs_valid = False
-            if ignore_mac_error:
-                self.eprint(
-                    f"WARNING: {msg}" + (f": {cause}" if cause else ""))
-            else:
-                raise RuntimeError(
-                    f"{self.name}: ERROR: Unable to verify authenticity of "
-                    "output. Aborting any remaining decoding process. Use "
-                    "extreme caution handling any partial output, it "
-                    "may have been modified by an attacker.\n"
-                    f"Reason: {msg}") from cause
-
-        headers = [tf.header for tf in authorized_set]
-
-        # Each fragment header in authorized_set has the same aset_id and
-        # payload_size, so read the first one.
-        aset_id = headers[0].aset_id
-        payload_size = headers[0].payload_size
-        try:
-            reference_macs = self.load_macs(aset_id, segment_id)
-            self.ensure_mac_all_fragments(reference_macs,
-                                          len(authorized_set))
-        except Exception as e:
-            mac_error(
-                f"Failed to load MACs while decoding segment {segment_id=} "
-                f"with authorized set {aset_id=}",
-                cause=e)
-            reference_macs = {}
-
-        n_bytes = 0
-        computed_macs = {fragment_id: crypto.new_mac(mac.key, mac.algorithm)
-                         for (fragment_id, mac)
-                         in reference_macs.items()}
-        # Produce sequence of combined outputs, updating MACs along the way.
-        for fragment_chunks in self.fragments(authorized_set):
-            for (header, frag_chunk) in zip(headers, fragment_chunks):
-                if computed_macs:
-                    computed_macs[header.fragment_id].update(frag_chunk)
-            output_chunk = crypto.combine_fragments(fragment_chunks)
-            n_bytes += len(output_chunk)
-            yield output_chunk
-        # Finally add Header bytes into MACs
-        if computed_macs:
-            for header in headers:
-                computed_macs[header.fragment_id].update(header.to_bytes())
-        # Report length mismatch to give better error feedback. This isn't
-        # strictly necessary because a bad length will cause the MAC validation
-        # to fail, and HMAC is not vulnerable to length extension attack.
-        if payload_size != n_bytes:
-            raise ValueError(
-                f"Expected to decode {payload_size} bytes, but decoded "
-                f"{n_bytes} bytes of {segment_id=} of authorized set "
-                f"{aset_id=}")
-        # Finally validate MACs.
-        for fragment_id, reference_mac in reference_macs.items():
-            computed_mac = computed_macs[fragment_id]
-            if not crypto.digests_equal(reference_mac.digest,
-                                        computed_mac.digest()):
-                mac_error(
-                    f"MAC digest mismatch for {segment_id=} of {fragment_id=} "
-                    f"authorized set {aset_id=}")
-        return macs_valid
-
-    ## Entrypoint
-    def decode(self, ignore_mac_error=False):
-        macs_valid = True
-        try:
-            self.load()
-        finally:
-            self.print_registered_headers(file=sys.stderr)
-        for segment_id, segment in enumerate(self.segments()):
-            authorized_set = self.authorized_set(segment_id, segment)
-            ret = yield from self.combine_fragments(
-                authorized_set, segment_id, ignore_mac_error)
-            macs_valid = ret and macs_valid
-        if not macs_valid:
-            raise MacWarning()
-
-
-    ### Indentify implementation
-
-    def identify_segment(self, segment_id, segment):
-        ok = True
-        computed_macs = {}
-        aset_ids = sorted({frag.header.aset_id for frag in segment})
-        for aset_id in aset_ids:
-            try:
-                aset_segment_macs = self.load_macs(aset_id, segment_id)
-                computed_macs[aset_id] = {
-                    fragment_id: crypto.new_mac(reference_mac.key,
-                                                reference_mac.algorithm)
-                    for (fragment_id, reference_mac)
-                    in aset_segment_macs.items()}
-            except Exception as e:
-                print("Failed to load MACs while decoding segment "
-                      f"{segment_id=} with authorized set {aset_id=}")
-                print_exception(e, file=sys.stdout)
-                ok = False
-        expected_sizes = [tf.header.payload_size for tf in segment]
-        payload_sizes = [0] * len(segment)
-        # Compute MACs and sizes
-        for fragment_chunks in self.fragments(segment):
-            for i, (frag_chunk, tf) in enumerate(zip(fragment_chunks,
-                                                     segment)):
-                header = tf.header
-                payload_sizes[i] += len(frag_chunk)
-                try:
-                    mac = computed_macs[header.aset_id][header.fragment_id]
-                except KeyError:
-                    ok = False
-                    continue
-                mac.update(frag_chunk)
-        # Check sizes
-        for i, tf in enumerate(segment):
-            print(f"Check payload size of {tf.handle} ...", end='')
-            esz = expected_sizes[i]
-            psz = payload_sizes[i]
-            if esz != psz:
-                tf = segment[i]
-                print(f"\nUnexpected payload size of {psz} bytes, expected "
-                      f"{esz} in header of {tf.handle}: {tf.header}")
-                ok = False
-            else:
-                print(f" ok: {psz} bytes as expected")
-        # Check MACs
-        for header, handle in segment:
-            print(f"Check MAC digest of {handle} ...", end='')
-            aset_id = header.aset_id
-            fragment_id = header.fragment_id
-            try:
-                reference_mac = \
-                    self.reference_macs[aset_id][segment_id][fragment_id]
-            except KeyError:
-                print(
-                    f" no reference MAC available for {segment_id=} of "
-                    f"{fragment_id=} of authorized set {aset_id=}")
-                ok = False
-                continue
-            try:
-                computed_mac = computed_macs[aset_id][fragment_id]
-            except KeyError:
-                print(
-                    f" no computed MAC available for {segment_id=} of "
-                    f"{fragment_id=} of authorized set {aset_id=}")
-                ok = False
-                continue
-            computed_mac.update(header.to_bytes())
-            if crypto.digests_equal(reference_mac.digest, computed_mac.digest()):
-                print(" ok")
-            else:
-                ok = False
-                print(
-                    f"\nERROR: Unable to verify authenticity of {segment_id=} "
-                    f"of {fragment_id=} of authorized set {aset_id=}: "
-                    "Computed MAC digest does not match reference MAC digest. "
-                    "Use extreme caution handling any decoded output, it may "
-                    "have been modified by an attacker.")
-        return ok
-
-    ## Entrypoint
-    def identify(self):
-        ok = True
-        try:
-            self.load()
-        finally:
-            self.print_registered_headers()
-        for segment_id, segment in enumerate(self.segments()):
-            ret = self.identify_segment(segment_id, segment)
-            ok = ret and ok
-        return ok
