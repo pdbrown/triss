@@ -14,9 +14,8 @@ from .gen_common import m_and_n
 from .. import helpers
 
 from triss.byte_streams import resize_seqs
-from triss.codec.memory import MemoryCodec
-from triss.codec.data_file import FileEncoder, FileDecoder
-from triss.codec.qrcode import QR_DATA_SIZE_BYTES, QREncoder, QRDecoder
+from triss.codec import data_file, qrcode
+from triss.codec.qrcode import QR_DATA_SIZE_BYTES
 from triss.header import Header, IntField, StrField
 
 def flip_bit(shares):
@@ -72,7 +71,7 @@ def test_corruption_detected(data, n):
     with (tempfile.TemporaryDirectory() as d,
           tempfile.TemporaryDirectory() as save_dir):
         save_dir = Path(save_dir)
-        encoder = FileEncoder(d)
+        encoder = data_file.encoder(d)
         encoder.encode(data, m, n)
         share_dirs = Path(d).iterdir()
         share_asets = list(itertools.permutations(share_dirs, m))
@@ -84,7 +83,7 @@ def test_corruption_detected(data, n):
             delete_bytes,
             corrupt_header])
         corruptor(shares)
-        decoder = FileDecoder(shares)
+        decoder = data_file.decoder(shares)
         with pytest.raises(Exception):
             for chunk in decoder.decode():
                 pass

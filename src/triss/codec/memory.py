@@ -3,48 +3,50 @@
 
 from collections import defaultdict
 
-from triss.codec import MappingEncoder, Decoder
+from triss.codec import Codec, Writer, Reader, Encoder, Decoder
 from triss.header import Header
 
-class MemoryCodec(MappingEncoder, Decoder):
-
+class MemoryStore(Writer, Reader):
+    """
+    A MemoryStore implements in-memory secret splits for testing.
+    """
     def __init__(self):
-        Decoder.__init__(self)
         self.parts = {}
         self.shares = defaultdict(list)
         self.decoder_share_ids = None
 
-    # Encoder impl
-    def write(self, share_id, header, fragment):
-        data = header.to_bytes() + fragment
+    # Writer impl
+    def write(self, share_id, header, payload=None):
         k = header.to_key()
-        self.parts[k] = data
-        self.shares[share_id].append(k)
+        try:
+            h, p = self.parts[k]
+            header = header or h
+            payload = payload or p
+        except KeyError:
+            pass
+        self.parts[k] = (header.to_bytes(), payload)
+        share = self.shares[share_id]
+        if k not in share:
+            share.append(k)
 
-    def write_macs(self, share_id, header, mac_data_stream):
-        self.write(share_id, header, b''.join(mac_data_stream))
-
-    def patch_header(self, share_id, header_key, n_segments):
-        k = header_key.to_key()
-        data = self.parts[k]
-        header, _ = Header.parse([data])
-        header.segment_count = n_segments
-        self.parts[k] = header.to_bytes() + data[header.size_bytes():]
-        return header
-
-    # Decoder impl
-    def use_authorized_set(self, share_ids):
+    # Reader impl
+    def select_authorized_set(self, share_ids):
         self.decoder_share_ids = share_ids
 
     def input_streams(self):
         if self.decoder_share_ids is None:
-            raise Exception("Call use_authorized_set first");
+            raise Exception("Call select_authorized_set first")
         for share_id in self.decoder_share_ids:
             for k in self.shares[share_id]:
                 data = self.parts[k]
-                yield((k, [data]))
+                yield((k, data))
 
     def payload_stream(self, tagged_input):
         header, k = tagged_input
-        data = self.parts[k]
-        return [data[header.size_bytes():]]
+        (_, payload) = self.parts[k]
+        return [payload]
+
+
+def codec(**opts):
+    store = MemoryStore()
+    return Codec(Encoder(store, **opts), Decoder(store, **opts))

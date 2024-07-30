@@ -8,23 +8,21 @@ import os
 from pathlib import Path
 
 from triss import codec
-from triss.codec import MappingEncoder, AppendingEncoder, Decoder
+from triss.codec import Codec, Writer, Appender, Reader, Encoder, AppendingEncoder, Decoder
 from triss.header import FragmentHeader, MacHeader
 from triss.util import eprint
 
-def update_fragment_header(path, update_fn):
-    with path.open(mode='rb+') as f:
-        header = FragmentHeader.from_bytes(
-            f.read(FragmentHeader.size_bytes()))
-        update_fn(header)
-        f.seek(0)
-        f.write(header.to_bytes())
-        f.flush()
-        os.fsync(f.fileno())
-        return header
+
+def header_name(header):
+    def to_str(x):
+        if isinstance(x, bytes):
+            return x.decode(encoding='utf-8')
+        else:
+            return str(x)
+    return ".".join(to_str(x) for x in header.to_key()) + ".dat"
 
 
-class FileSegmentEncoder(MappingEncoder):
+class FileWriter(Writer):
 
     def __init__(self, out_dir):
         self.out_dir = Path(out_dir)
@@ -33,29 +31,32 @@ class FileSegmentEncoder(MappingEncoder):
         return self.out_dir / f"share-{share_id}"
 
     def file_path(self, share_id, header):
-        name = f"{header.segment_id}.{header.aset_id}.{header.fragment_id}.dat"
-        return self.share_dir(share_id) / name
+        return self.share_dir(share_id) / header_name(header)
 
-    def write(self, share_id, header, fragment):
+    def write(self, share_id, header, payload=None):
         dest = self.file_path(share_id, header)
+        if dest.exists():
+            mode = 'r+b'
+        else:
+            mode = 'wb'
         dest.parent.mkdir(parents=True, exist_ok=True)
-        with dest.open(mode='wb') as f:
+        with dest.open(mode=mode) as f:
+            f.seek(0)
             f.write(header.to_bytes())
-            f.write(fragment)
+            if payload:
+                f.write(payload)
             f.flush()
             os.fsync(f.fileno())
 
-    def summary(self, n_segments):
-        super().summary(n_segments)
-        # Add one extra part per aset to hold macs
-        n_frag_parts = self.n_segments * self.n_asets_per_share
-        n_mac_parts = self.n_asets_per_share
-        self.n_parts_per_share = n_frag_parts + n_mac_parts
+    def summary(self, encoder):
+        self.n_parts_per_share = \
+            encoder.n_asets_per_share * (encoder.n_segments +
+                                         encoder.mac_slice_count)
         # Number of digits needed to print 1-based part number ordinals.
         self.part_num_width = int(math.log10(self.n_parts_per_share)) + 1
         self.part_numbers = defaultdict(int)
 
-    def next_part_num_name(self, share_id):
+    def next_part_num_and_name(self, share_id):
         self.part_numbers[share_id] += 1
         n = self.part_numbers[share_id]
         # f-string: f"{3:05}" pads 3 with leading zeros to width 5: "00003"
@@ -63,63 +64,31 @@ class FileSegmentEncoder(MappingEncoder):
         return (n, f"share-{share_id}_part-{nf}_of_"
                 f"{self.n_parts_per_share}.dat")
 
-    def write_macs(self, share_id, header, mac_data_stream):
-        _, name = self.next_part_num_name(share_id)
-        path = self.share_dir(share_id) / name
-        with path.open(mode='wb') as f:
-            f.write(header.to_bytes())
-            for chunk in mac_data_stream:
-                f.write(chunk)
-            f.flush()
-            os.fsync(f.fileno())
-
-    def patch_header(self, share_id, header_key, n_segments):
-        path = self.file_path(share_id, header_key)
-        def set_segment_count(header):
-            header.segment_count = n_segments
-        header = update_fragment_header(path, set_segment_count)
-        part_number, part_name = self.next_part_num_name(share_id)
+    def post_process(self, header):
+        share_id = header.metadata.share_id
+        path = self.file_path(share_id, header)
+        part_number, part_name = self.next_part_num_and_name(share_id)
         new_path = path.parent / part_name
         os.replace(path, new_path)
-        self.post_process(share_id, header, part_number, new_path)
-        return header
-
-    def post_process(self, share_id, header, part_number, path):
-        pass
+        header.metadata.path = new_path
+        header.metadata.part_number = part_number
 
 
-class FileEncoder(AppendingEncoder):
+class FileAppender(FileWriter, Appender):
 
-    SEGMENT_ID = 0
-
-    def __init__(self, out_dir):
-        super().__init__(FileSegmentEncoder(out_dir))
-        self.out_dir = out_dir
-
-    def append(self, share_id, aset_id, fragment_id, fragment):
-        path = self.mapping_encoder.file_path(
-            share_id,
-            FragmentHeader(segment_id=self.SEGMENT_ID,
-                           aset_id=aset_id,
-                           fragment_id=fragment_id))
+    def append(self, share_id, header, chunk):
+        path = self.file_path(share_id, header)
         with path.open(mode='ab') as f:
-            f.write(fragment)
+            f.write(chunk)
             f.flush()
             os.fsync(f.fileno())
 
-    def patch_append_size(self, share_id, header_key, appended_byte_count):
-        path = self.mapping_encoder.file_path(share_id, header_key)
-        def update_payload_size(header):
-            header.payload_size += appended_byte_count
-        update_fragment_header(path, update_payload_size)
 
-
-class FileDecoder(Decoder):
+class FileReader(Reader):
 
     CHUNK_SIZE = 4096 * 16
 
-    def __init__(self, in_dirs, *, file_extension="dat", **opts):
-        super().__init__(**opts)
+    def __init__(self, in_dirs, *, file_extension="dat"):
         self.in_dirs = list(in_dirs)
         self.file_extension = file_extension
 
@@ -146,3 +115,12 @@ class FileDecoder(Decoder):
     def payload_stream(self, tagged_input):
         return self.read_file(tagged_input.handle,
                               seek=tagged_input.header.size_bytes())
+
+
+def encoder(out_dir, **opts):
+    return AppendingEncoder(FileAppender(out_dir), **opts)
+
+
+def decoder(in_dirs, *, file_extension="dat", **opts):
+    reader = FileReader(in_dirs, file_extension=file_extension)
+    return Decoder(reader, name="FileDecoder", **opts)

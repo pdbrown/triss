@@ -11,8 +11,8 @@ import subprocess
 from PIL import Image, ImageDraw, ImageFont
 
 from triss import byte_streams, codec, crypto
-from triss.codec import Encoder
-from triss.codec.data_file import FileSegmentEncoder, FileDecoder
+from triss.codec import Encoder, Decoder
+from triss.codec.data_file import FileWriter, FileReader
 from triss.header import FragmentHeader, MacHeader
 from triss.util import eprint, div_up
 
@@ -30,14 +30,31 @@ MARGIN = QR_BOX_SIZE * QR_BORDER
 
 TRY_FONTS = ["Helvetica.ttf", "DejaVuSans.ttf", "Arial.ttf"]
 
+
 def eprint_stdout_stderr(proc):
     if proc.stdout:
         eprint(proc.stdout.decode('utf-8').strip())
     eprint_stderr(proc)
 
+
 def eprint_stderr(proc):
     if proc.stderr:
         eprint(proc.stderr.decode('utf-8').strip())
+
+
+def ensure_prog(cmdline, reason):
+    prog = cmdline[0]
+    try:
+        proc = subprocess.run(cmdline, capture_output=True)
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            f"The external program {prog} is required {reason} but is not "
+            "available on the PATH.") from e
+    if proc.returncode != 0:
+        eprint_stdout_stderr(proc)
+        raise RuntimeError(
+            f"The external program {prog} is required {reason}, but appears "
+            f"to be broken. Try running: {' '.join(cmdline)}")
 
 
 def do_qrencode(data, path):
@@ -74,11 +91,13 @@ def do_qrencode(data, path):
         raise RuntimeError(
             f"qrencode failed with error writing to {path}.")
 
+
 def load_image(path):
     # Read image data into img, then close img_path keeping img in memory.
     with Image.open(path) as img:
         img.load()
     return img
+
 
 def merge_img_y(im_top, im_bottom):
     w = max(im_top.size[0], im_bottom.size[0])
@@ -88,6 +107,7 @@ def merge_img_y(im_top, im_bottom):
     im.paste(im_bottom, (0, im_top.size[1]))
     return im
 
+
 def pad_vertical(img):
     w, h = img.size
     if w <= h:
@@ -95,6 +115,7 @@ def pad_vertical(img):
     out = Image.new('RGBA', (w, w + 1), 'white')
     out.paste(img)
     return out
+
 
 def find_font(size):
     size = int(size)
@@ -105,6 +126,7 @@ def find_font(size):
             pass
     return None
 
+
 def font_height(font, text, spacing=4):
     img = Image.new("RGBA", (1,1))
     d = ImageDraw.Draw(img)
@@ -112,10 +134,12 @@ def font_height(font, text, spacing=4):
         (0, 0), text, font=font, spacing=spacing)
     return bottom - top
 
+
 def add_xy(pos, dxdy):
     x, y = pos
     dx, dy = dxdy
     return (x + dx, y + dy)
+
 
 def add_caption(img, title, subtitle="", detail=""):
     # Resize images so text has constant size regardless of the qrcode IMG
@@ -161,67 +185,22 @@ def qr_encode(data, path, *, title="", subtitle="", detail=""):
     img.save(path)
     return img
 
-class QREncoder(FileSegmentEncoder):
+
+class QRWriter(FileWriter):
 
     def __init__(self, out_dir, secret_name):
         super().__init__(out_dir)
         self.secret_name = secret_name
         ensure_prog(['qrencode', '--version'], "to encode QRCODEs")
 
-    def encode(self, secret_data_segments, m, n,
-               mac_algorithm=Encoder.DEFAULT_MAC_ALGORITHM):
-        secret_data_segments = byte_streams.resize_seqs(QR_DATA_SIZE_BYTES,
-                                                        secret_data_segments)
-        super().encode(secret_data_segments, m, n, mac_algorithm=mac_algorithm)
+    def summary(self, encoder):
+        super().summary(encoder)
+        self.m = encoder.m
+        self.n = encoder.n
 
-    def summary(self, n_segments):
-        super().summary(n_segments)
-        n_frag_parts = n_segments * self.n_asets_per_share
-        # Reserve space for MACs. Per share, have:
-        # - MAC output for each aset in the share
-        # - MAC output has:
-        #   - 1 key
-        #   - 1 digest for each segment of each fragment
-        aset_mac_bytes = (self.mac_key_size_bytes +
-                          n_segments * self.m *
-                          crypto.digest_size_bytes(self.mac_algorithm))
-        self.n_mac_parts_per_aset = div_up(aset_mac_bytes,
-                                           QR_MAC_DATA_SIZE_BYTES)
-        n_mac_parts = self.n_mac_parts_per_aset * self.n_asets_per_share
-        self.n_parts_per_share = n_frag_parts + n_mac_parts
-        # Number of digits needed to print 1-based part number ordinals.
-        self.part_num_width = int(math.log10(self.n_parts_per_share)) + 1
-        self.part_numbers = defaultdict(int)
-
-    def write_macs(self, share_id, header, mac_data_stream):
-        header.part_count = self.n_mac_parts_per_aset
-        mac_data_stream = byte_streams.resize_seqs(
-            QR_MAC_DATA_SIZE_BYTES, mac_data_stream)
-        for part_id, chunk in enumerate(mac_data_stream):
-            part_num, name = self.next_part_num_name(share_id)
-            path = (self.share_dir(share_id) / name).with_suffix(".png")
-            header.part_id = part_id
-            data = header.to_bytes() + chunk
-            subtitle = (f"Share {share_id} - "
-                        f"Part {part_num}/{self.n_parts_per_share}\n"
-                        f"Recover secret with {self.m} of {self.n} shares.\n"
-                f"Require all parts of each share.")
-            detail = ("==== Part Details ====\n"
-                      f"{type(header).__name__} version: {header.version}\n"
-                      f"MACs for Authorized Set aset_id={header.aset_id}\n"
-                      f"MAC key for fragment_id={header.fragment_id}\n"
-                      f"MAC Slice: {part_id + 1}/{header.part_count}\n"
-                      f"MAC Algorithm: {header.algorithm}")
-            qr_encode(data, path, title=self.secret_name, subtitle=subtitle,
-                      detail=detail)
-
-    def post_process(self, share_id, header, part_number, path):
-        with path.open('rb') as f:
-            data = f.read()
-
-        img_path = path.with_suffix(".png")
-        subtitle = (f"Share {share_id} - "
-                    f"Part {part_number}/{self.n_parts_per_share}\n"
+    def fragment_caption(self, header):
+        subtitle = (f"Share {header.metadata.share_id} - "
+                    f"Part {header.metadata.part_number}/{self.n_parts_per_share}\n"
                     f"Recover secret with {self.m} of {self.n} shares.\n"
                     f"Require all parts of each share.")
         detail = (
@@ -230,10 +209,49 @@ class QREncoder(FileSegmentEncoder):
             f"Authorized Set aset_id={header.aset_id}\n"
             f"Segment: {header.segment_id + 1}/{header.segment_count}\n"
             f"Fragment: {header.fragment_id + 1}/{header.fragment_count}")
+        return (subtitle, detail)
 
-        qr_encode(data, img_path, title=self.secret_name, subtitle=subtitle,
+    def mac_caption(self, header):
+        subtitle = (f"Share {header.metadata.share_id} - "
+                    f"Part {header.metadata.part_number}/{self.n_parts_per_share}\n"
+                    f"Recover secret with {self.m} of {self.n} shares.\n"
+                    f"Require all parts of each share.")
+        detail = ("==== Part Details ====\n"
+                  f"{type(header).__name__} version: {header.version}\n"
+                  f"MACs for Authorized Set aset_id={header.aset_id}\n"
+                  f"MAC key for fragment_id={header.fragment_id}\n"
+                  f"MAC Slice: {header.slice_id + 1}/{header.slice_count}\n"
+                  f"MAC Algorithm: {header.algorithm}")
+        return (subtitle, detail)
+
+    def post_process(self, header):
+        super().post_process(header)
+        if isinstance(header, FragmentHeader):
+            subtitle, detail = self.fragment_caption(header)
+        elif isinstance(header, MacHeader):
+            subtitle, detail = self.mac_caption(header)
+        else:
+            raise RuntimeError(f"Invalid Header type: {type(header).__name__}")
+        path = header.metadata.path
+        with path.open('rb') as f:
+            data = f.read()
+        img_path = path.with_suffix(".png")
+        qr_encode(data, img_path, title=self.secret_name,
+                  subtitle=subtitle,
                   detail=detail)
         path.unlink()
+
+
+class QREncoder(Encoder):
+
+    def __init__(self, out_dir, secret_name, **opts):
+        opts['mac_slice_size_bytes'] = QR_MAC_DATA_SIZE_BYTES
+        super().__init__(QRWriter(out_dir, secret_name), **opts)
+
+    def encode(self, secret_data_segments, m, n):
+        secret_data_segments = byte_streams.resize_seqs(
+            QR_DATA_SIZE_BYTES, secret_data_segments)
+        super().encode(secret_data_segments, m, n)
 
 
 def qr_decode(path):
@@ -287,10 +305,10 @@ def qr_decode(path):
     return proc.stdout
 
 
-class QRDecoder(FileDecoder):
+class QRReader(FileReader):
 
-    def __init__(self, in_dirs, **opts):
-        super().__init__(in_dirs, **opts)
+    def __init__(self, in_dirs):
+        super().__init__(in_dirs)
         ensure_prog(['zbarimg', '--version'], "to decode QRCODEs")
 
     def read_file(self, path, *, seek=0):
@@ -305,16 +323,9 @@ class QRDecoder(FileDecoder):
                     yield path
 
 
-def ensure_prog(cmdline, reason):
-    prog = cmdline[0]
-    try:
-        proc = subprocess.run(cmdline, capture_output=True)
-    except FileNotFoundError as e:
-        raise RuntimeError(
-            f"The external program {prog} is required {reason} but is not "
-            "available on the PATH.") from e
-    if proc.returncode != 0:
-        eprint_stdout_stderr(proc)
-        raise RuntimeError(
-            f"The external program {prog} is required {reason}, but appears "
-            f"to be broken. Try running: {' '.join(cmdline)}")
+def encoder(out_dir, secret_name, **opts):
+    return QREncoder(out_dir, secret_name, **opts)
+
+
+def decoder(in_dirs, **opts):
+    return Decoder(QRReader(in_dirs), name="QRDecoder", **opts)

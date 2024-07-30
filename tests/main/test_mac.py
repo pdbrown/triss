@@ -9,10 +9,7 @@ from pathlib import Path
 from .. import helpers
 
 from triss.byte_streams import resize_seqs
-from triss.codec import MacWarning, qrcode
-from triss.codec.memory import MemoryCodec
-from triss.codec.data_file import FileEncoder, FileDecoder
-from triss.codec.qrcode import QREncoder, QRDecoder
+from triss.codec import MacWarning, data_file, qrcode
 from triss.header import Header, FragmentHeader, MacHeader
 
 def test_hmac_512(tmp_path):
@@ -20,11 +17,11 @@ def test_hmac_512(tmp_path):
     data = [b'asdf', b'qwer']
     m = 2
     n = 4
-    encoder = FileEncoder(tmp_path)
-    encoder.encode(data, m, n, mac_algorithm=algo)
+    encoder = data_file.encoder(tmp_path, mac_algorithm=algo)
+    encoder.encode(data, m, n)
     for aset in itertools.permutations(range(n), m):
         shares = [tmp_path / f"share-{i}" for i in aset]
-        decoder = FileDecoder(shares)
+        decoder = data_file.decoder(shares)
         assert list(resize_seqs(4, decoder.decode())) == data
         first_aset_macs = next(iter(decoder.mac_loader.reference_macs.values()))
         first_fragment_macs = next(iter(first_aset_macs.values()))
@@ -38,7 +35,7 @@ def test_invalid_mac(tmp_path):
     modified = [b'asdg']
     m = 2
     n = 2
-    encoder = FileEncoder(tmp_path)
+    encoder = data_file.encoder(tmp_path)
     encoder.encode(data, m, n)
     shares = list(tmp_path.iterdir())
 
@@ -57,7 +54,7 @@ def test_invalid_mac(tmp_path):
         f.write(malleable[0:-1])
         f.write(bytes([cipher_g]))
 
-    decoder = FileDecoder(shares)
+    decoder = data_file.decoder(shares)
     with pytest.raises(MacWarning):
         assert list(resize_seqs(
             4, decoder.decode(ignore_mac_error=True))) == modified
@@ -67,27 +64,36 @@ def test_invalid_mac(tmp_path):
         assert list(resize_seqs(4, decoder.decode())) == data
 
 
-@pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
-def test_multiple_mac_slices(tmp_path, monkeypatch):
-    # Shrink QR codes to force splitting MAC over multiple slices with smaller
-    # test case.
-    monkeypatch.setattr(qrcode, "QR_SIZE_MAX_BYTES", 200)
-    monkeypatch.setattr(qrcode, "QR_DATA_SIZE_BYTES",
-                        qrcode.QR_SIZE_MAX_BYTES - FragmentHeader.size_bytes())
-    monkeypatch.setattr(qrcode, "QR_MAC_DATA_SIZE_BYTES",
-                        qrcode.QR_SIZE_MAX_BYTES - MacHeader.size_bytes())
-
-    encoder = QREncoder(tmp_path, "test secret")
+def test_multiple_mac_slices_data_file(tmp_path):
+    encoder = data_file.encoder(tmp_path,
+                                mac_slice_size_bytes=10)
     data = [b'asdf', b'qwer']
-
-    # mac_algo = "hmac-sha512"
-    n = 3
+    n = 2
     m = 2
 
     encoder.encode(data, m, n)
-    # encoder.encode(data, m, n, mac_algorithm=mac_algo)
 
     shares = tmp_path.iterdir()
-    decoder = QRDecoder(shares)
+    decoder = data_file.decoder(shares)
+    data_out = [b'asdfqwer']
+    assert list(decoder.decode()) == data_out
+
+
+@pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
+def test_multiple_mac_slices_qrcode(tmp_path, monkeypatch):
+    # Use larger mac digest so test works with fewer fragments
+    algo = "hmac-sha512"
+    encoder = qrcode.encoder(tmp_path, "test secret", mac_algorithm=algo)
+    data = [b'asdf', b'qwer']
+    # 64 byte (512 bit) key and digest size: 1 key, 18 digests per mac output
+    # is 1216 bytes. Header is another 64 bytes for a total of:
+    # 1280 bytes > the 1273 byte capacity of triss QR codes.
+    n = 18
+    m = 18
+
+    encoder.encode(data, m, n)
+
+    shares = tmp_path.iterdir()
+    decoder = qrcode.decoder(shares)
     data_out = [b'asdfqwer']
     assert list(decoder.decode()) == data_out

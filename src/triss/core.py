@@ -12,9 +12,8 @@ import tempfile
 import traceback
 
 from triss.byte_streams import resize_seqs
-from triss.codec import MacWarning, data_file
+from triss.codec import MacWarning, Reporter, data_file, qrcode
 from triss.util import eprint, iter_str, print_exception, verbose
-from triss.codec import qrcode
 
 def python_version_check(args):
     """
@@ -37,9 +36,9 @@ def python_version_check(args):
 
 DEFAULT_FORMAT='DATA'
 DECODERS = {
-    'DATA': [data_file.FileDecoder],
-    'QRCODE': [qrcode.QRDecoder],
-    'ALL': [data_file.FileDecoder, qrcode.QRDecoder]
+    'DATA': [data_file.decoder],
+    'QRCODE': [qrcode.decoder],
+    'ALL': [data_file.decoder, qrcode.decoder]
 }
 
 
@@ -63,12 +62,15 @@ def open_output(path):
     else:
         return contextlib.nullcontext(sys.stdout.buffer)
 
+
+BUFFER_SIZE = 4096 * 16
+
 def read_buffered(path):
     with open_input(path) as f:
-        chunk = f.read1()
+        chunk = f.read1(BUFFER_SIZE)
         while chunk:
             yield chunk
-            chunk = f.read1()
+            chunk = f.read1(BUFFER_SIZE)
 
 def authorized_share_sets(share_parent_dir, m):
     share_dirs = Path(share_parent_dir).iterdir()
@@ -114,12 +116,12 @@ def assert_all_authorized_sets_combine(in_file, out_dir, m, input_format):
             f.unlink()
 
 
-def do_split(in_file, out_dir, output_format=DEFAULT_FORMAT, m=2, n=2,
+def do_split(in_file, out_dir, *, output_format=DEFAULT_FORMAT, m, n,
              secret_name="Split secret", skip_combine_check=False):
     if output_format == 'DATA':
-        encoder = data_file.FileEncoder(out_dir)
+        encoder = data_file.encoder(out_dir)
     elif output_format == 'QRCODE':
-        encoder = qrcode.QREncoder(out_dir, secret_name)
+        encoder = qrcode.encoder(out_dir, secret_name)
     else:
         raise ValueError(f"Unknown output format {output_format}.")
 
@@ -231,8 +233,9 @@ def try_identify(decoder_cls, dirs):
         print(f"Failed to initialize decoder {decoder_cls.__name__}:")
         print_exception(e, file=sys.stdout)
         return False
+    reporter = Reporter(decoder)
     try:
-        if decoder.identify():
+        if reporter.identify():
             return True
     except Exception as e:
         print(f"{decoder.name}: And failed to identify with:")

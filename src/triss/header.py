@@ -2,6 +2,7 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 import itertools
+from types import SimpleNamespace
 
 from triss import byte_streams
 from triss import crypto
@@ -60,6 +61,7 @@ class Header:
         INFO holds header data as typed objects (not just byte arrays), and is
         keyed by field names. Retrieve header bytes with get_bytes or to_bytes.
         """
+        self.metadata = SimpleNamespace()
         for k in self.__fields__:
             v = info.get(k, self.__fields__[k].default)
             setattr(self, k, v)
@@ -162,7 +164,7 @@ class FragmentHeader(Header):
         IntField("segment_count", 4),
         IntField("fragment_id", 4),
         IntField("fragment_count", 4))
-    __key_fields__ = ["tag", "aset_id", "fragment_id", "segment_id"]
+    __key_fields__ = ["tag", "aset_id", "segment_id", "fragment_id"]
 
 class MacHeader(Header):
     __fields__ = fields_by_name(
@@ -175,9 +177,8 @@ class MacHeader(Header):
         IntField("segment_count", 4),
         IntField("fragment_count", 4),
         # May need to split MAC data into multiple "slices" (in QRCODE mode).
-        # Analagous to "segments" in FragmentHeader, but don't reuse that name.
-        IntField("part_id", 4),
-        IntField("part_count", 4),
+        IntField("slice_id", 4),
+        IntField("slice_count", 4),
         IntField("key_size_bytes", 4),
         StrField("algorithm", 24))
-    __key_fields__ = ["tag", "aset_id", "fragment_id", "part_id"]
+    __key_fields__ = ["tag", "aset_id", "fragment_id", "slice_id"]

@@ -9,9 +9,7 @@ from pathlib import Path
 from .. import helpers
 
 from triss.byte_streams import resize_seqs
-from triss.codec.memory import MemoryCodec
-from triss.codec.data_file import FileEncoder, FileDecoder
-from triss.codec.qrcode import QREncoder, QRDecoder
+from triss.codec import memory, data_file, qrcode
 from triss.header import Header, FragmentHeader
 
 def test_fragment_header():
@@ -40,16 +38,16 @@ def test_fragment_header():
     assert parsed.tag == h.tag
 
 def test_memory_codec():
-    codec = MemoryCodec()
+    encoder, decoder = memory.codec()
     data = [b'asdf', b'qwer']
     m = 2
     n = 4
 
-    codec.encode(data, m, n)
+    encoder.encode(data, m, n)
 
     for aset in itertools.permutations(range(n), m):
-        codec.use_authorized_set(aset)
-        decoded = list(codec.decode())
+        decoder.reader.select_authorized_set(aset)
+        decoded = list(decoder.decode())
         # print(f"Input:  {data}")
         # print(f"Result: {decoded}")
         assert decoded == data
@@ -59,11 +57,11 @@ def test_file_encoder_decoder(tmp_path):
     data_out = [b'asd', b'fqw', b'er']
     m = 2
     n = 4
-    encoder = FileEncoder(tmp_path)
+    encoder = data_file.encoder(tmp_path)
     encoder.encode(data, m, n)
     for aset in itertools.permutations(range(n), m):
         shares = [tmp_path / f"share-{i}" for i in aset]
-        decoder = FileDecoder(shares)
+        decoder = data_file.decoder(shares)
         assert list(resize_seqs(3, decoder.decode())) == data_out
 
 @pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
@@ -72,9 +70,9 @@ def test_qr_encoder_decoder(tmp_path):
     data_out = [b'asdfqwer']
     m = 2
     n = 4
-    encoder = QREncoder(tmp_path, "test secret")
+    encoder = qrcode.encoder(tmp_path, "test secret")
     encoder.encode(data, m, n)
     for aset in itertools.permutations(range(n), m):
         shares = [tmp_path / f"share-{i}" for i in aset]
-        decoder = QRDecoder(shares)
+        decoder = qrcode.decoder(shares)
         assert list(decoder.decode()) == data_out

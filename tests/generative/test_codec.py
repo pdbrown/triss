@@ -13,18 +13,17 @@ from . import gen_common
 from .gen_common import m_and_n
 
 from triss.byte_streams import resize_seqs
-from triss.codec.memory import MemoryCodec
-from triss.codec.data_file import FileEncoder, FileDecoder
-from triss.codec.qrcode import QREncoder, QRDecoder, QR_DATA_SIZE_BYTES
+from triss.codec import memory, data_file, qrcode
+from triss.codec.qrcode import QR_DATA_SIZE_BYTES
 
 @given(data=st.lists(st.binary(min_size=1), min_size=1), m_n=m_and_n())
 def test_memory_codec(data, m_n):
-    codec = MemoryCodec()
+    encoder, decoder = memory.codec()
     (m, n) = m_n
-    codec.encode(data, m, n)
+    encoder.encode(data, m, n)
     aset = random.choice(list(itertools.combinations(range(n), m)))
-    codec.use_authorized_set(aset)
-    decoded = list(codec.decode())
+    decoder.reader.select_authorized_set(aset)
+    decoded = list(decoder.decode())
     assert decoded == data
 
 @given(data=st.lists(st.binary()), m_n=m_and_n())
@@ -43,7 +42,7 @@ def test_file_encoder_decoder_large(byte_count, m_n):
 def do_file_encoder_decoder(data, m_n):
     with tempfile.TemporaryDirectory() as d:
         (m, n) = m_n
-        encoder = FileEncoder(d)
+        encoder = data_file.encoder(d)
         encoder.encode(data, m, n)
 
         share_dirs = Path(d).iterdir()
@@ -53,7 +52,7 @@ def do_file_encoder_decoder(data, m_n):
             return
 
         shares = random.choice(share_asets)
-        decoder = FileDecoder(shares)
+        decoder = data_file.decoder(shares)
 
         decoded = list(helpers.kb_stream(decoder.decode()))
         original = list(helpers.kb_stream(data))
@@ -82,7 +81,7 @@ def test_qr_encoder_decoder_more_shares(data, m_n):
 def do_qr_encoder_decoder(data, m_n):
     with tempfile.TemporaryDirectory() as d:
         (m, n) = m_n
-        encoder = QREncoder(d, "test secret")
+        encoder = qrcode.encoder(d, "test secret")
         encoder.encode(data, m, n)
 
         share_dirs = Path(d).iterdir()
@@ -92,7 +91,7 @@ def do_qr_encoder_decoder(data, m_n):
             return
 
         shares = random.choice(share_asets)
-        decoder = QRDecoder(shares)
+        decoder = qrcode.decoder(shares)
 
         try:
             decoded = list(helpers.kb_stream(decoder.decode()))

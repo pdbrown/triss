@@ -8,10 +8,9 @@ from triss import byte_streams
 from triss.util import eprint
 from triss.codec import qrcode
 
-
 try:
-    qrcode.QREncoder(".", "dummy")
-    qrcode.QRDecoder(["."])
+    qrcode.encoder(".", "dummy")
+    qrcode.decoder(["."])
     HAVE_QRCODE = True
 except Exception:
     HAVE_QRCODE = False
