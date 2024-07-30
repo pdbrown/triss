@@ -5,7 +5,7 @@ import argparse
 import sys
 
 from triss import core, util
-from triss.util import eprint, print_exception
+from triss.util import print_exception
 
 def cli():
     parser = argparse.ArgumentParser(

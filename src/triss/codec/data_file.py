@@ -2,15 +2,11 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 from collections import defaultdict
-import itertools
 import math
 import os
 from pathlib import Path
 
-from triss import codec
-from triss.codec import Codec, Writer, Appender, Reader, Encoder, AppendingEncoder, Decoder
-from triss.header import FragmentHeader, MacHeader
-from triss.util import eprint
+from triss.codec import Writer, Appender, Reader, AppendingEncoder, Decoder
 
 
 def header_name(header):

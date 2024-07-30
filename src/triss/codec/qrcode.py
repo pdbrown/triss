@@ -1,8 +1,6 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-from collections import defaultdict
-import math
 import mimetypes
 from pathlib import Path
 import re
@@ -10,11 +8,11 @@ import subprocess
 
 from PIL import Image, ImageDraw, ImageFont
 
-from triss import byte_streams, codec, crypto
+from triss import byte_streams
 from triss.codec import Encoder, Decoder
 from triss.codec.data_file import FileWriter, FileReader
 from triss.header import FragmentHeader, MacHeader
-from triss.util import eprint, div_up
+from triss.util import eprint
 
 mimetypes.init()
 
@@ -145,7 +143,6 @@ def add_caption(img, title, subtitle="", detail=""):
     # Resize images so text has constant size regardless of the qrcode IMG
     # size.
     spacing = 6
-    n_lines = len(subtitle.split("\n"))
     qr_v40_modules = 177
     # width of version 40 qr code
     w = (qr_v40_modules + 2 * QR_BORDER) * QR_BOX_SIZE

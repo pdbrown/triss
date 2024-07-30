@@ -4,7 +4,6 @@
 import pytest
 
 import itertools
-from pathlib import Path
 
 from .. import helpers
 

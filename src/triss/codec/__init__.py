@@ -1,7 +1,6 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-from enum import IntEnum
 import itertools
 from collections import defaultdict, namedtuple
 import sys
@@ -9,7 +8,7 @@ import sys
 from triss import byte_streams
 from triss import crypto
 from triss.header import Header, FragmentHeader, MacHeader
-from triss.util import eprint, print_exception, verbose
+from triss.util import eprint, print_exception
 
 
 Codec = namedtuple("Codec", ["encoder", "decoder"])

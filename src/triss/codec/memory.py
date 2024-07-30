@@ -4,7 +4,6 @@
 from collections import defaultdict
 
 from triss.codec import Codec, Writer, Reader, Encoder, Decoder
-from triss.header import Header
 
 class MemoryStore(Writer, Reader):
     """

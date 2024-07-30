@@ -2,20 +2,17 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 import pytest
-from hypothesis import example, given, settings, strategies as st, HealthCheck
+from hypothesis import given, strategies as st
 import itertools
 from pathlib import Path
 import random
 import shutil
 import tempfile
 
-from . import gen_common
-from .gen_common import m_and_n
+from . import gen_common # noqa: F401
 from .. import helpers
 
-from triss.byte_streams import resize_seqs
-from triss.codec import data_file, qrcode
-from triss.codec.qrcode import QR_DATA_SIZE_BYTES
+from triss.codec import data_file
 from triss.header import Header, IntField, StrField
 
 def flip_bit(shares):

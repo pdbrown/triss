@@ -24,10 +24,10 @@ def stress_qr_codec(tid, tmp_path):
         my_path.mkdir()
         n = 2
         attempts = 50
-        for l in [50, 100, 200]:
+        for size in [50, 100, 200]:
             for attempt in range(attempts):
-                tprint(tid, f"Length {l}, attempt {attempt+1}/{attempts}")
-                data = random.randbytes(l)
+                tprint(tid, f"Size {size}, attempt {attempt+1}/{attempts}")
+                data = random.randbytes(size)
                 do_split_combine(
                     data,
                     my_path,

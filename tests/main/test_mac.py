@@ -4,13 +4,12 @@
 import pytest
 
 import itertools
-from pathlib import Path
 
 from .. import helpers
 
 from triss.byte_streams import resize_seqs
 from triss.codec import MacWarning, data_file, qrcode
-from triss.header import Header, FragmentHeader, MacHeader
+from triss.header import Header, FragmentHeader
 
 def test_hmac_512(tmp_path):
     algo = "hmac-sha512"
@@ -46,7 +45,6 @@ def test_invalid_mac(tmp_path):
             malleable = f.read()
             header, _ = Header.parse([malleable])
             if isinstance(header, FragmentHeader):
-                part_file = part
                 break
 
     cipher_g = malleable[-1] ^ 1  # make result decrypt to: f XOR 1 = g

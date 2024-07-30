@@ -2,14 +2,14 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 import pytest
-from hypothesis import example, given, settings, strategies as st, HealthCheck
+from hypothesis import example, given, settings, strategies as st
 import itertools
 from pathlib import Path
 import random
 import tempfile
 
 from .. import helpers
-from . import gen_common
+from . import gen_common # noqa: F401
 from .gen_common import m_and_n
 
 from triss.byte_streams import resize_seqs

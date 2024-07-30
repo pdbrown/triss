@@ -1,12 +1,11 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-import pytest
-from hypothesis import example, given, settings, strategies as st, HealthCheck
+from hypothesis import example, given, settings, strategies as st
 import copy
 import random
 
-from . import gen_common
+from . import gen_common # noqa: F401
 
 from triss import byte_streams
 from triss import crypto

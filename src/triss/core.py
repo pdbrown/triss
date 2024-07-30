@@ -6,7 +6,6 @@ import itertools
 import io
 from pathlib import Path
 import os
-import re
 import sys
 import tempfile
 import traceback
@@ -178,7 +177,7 @@ def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
                 os.fsync(f.fileno())
         if n_chunks > 0:
             if verbose():
-                decoder.eprint(f"Successfully decoded!")
+                decoder.eprint("Successfully decoded!")
             return (True, verbose())  # success, print messages in verbose mode
         else:
             decoder.eprint("Produced no output.")

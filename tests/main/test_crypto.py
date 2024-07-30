@@ -1,10 +1,6 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-import pytest
-
-import itertools
-
 from triss.crypto import fletchers_checksum_16, xor_bytes, \
     split_secret, combine_fragments
 
