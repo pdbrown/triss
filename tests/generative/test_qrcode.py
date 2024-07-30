@@ -4,11 +4,10 @@
 import pytest
 from hypothesis import given, settings, strategies as st, HealthCheck
 
-from .. import helpers
-from . import gen_common # noqa: F401
-
 from triss.codec import qrcode
 from triss.codec.qrcode import QR_SIZE_MAX_BYTES
+from .. import helpers
+from . import gen_common # noqa: F401
 
 @pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
 @given(xs=st.binary(min_size=1, max_size=QR_SIZE_MAX_BYTES),

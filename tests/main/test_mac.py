@@ -1,15 +1,14 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-import pytest
-
 import itertools
 
-from .. import helpers
+import pytest
 
 from triss.byte_streams import resize_seqs
 from triss.codec import MacWarning, data_file, qrcode
 from triss.header import Header, FragmentHeader
+from .. import helpers
 
 def test_hmac_512(tmp_path):
     algo = "hmac-sha512"
@@ -40,13 +39,14 @@ def test_invalid_mac(tmp_path):
 
     # Find part with the FragmentHeader
     share0  = shares[0]
+    part = None
     for part in share0.iterdir():
         with part.open('rb') as f:
             malleable = f.read()
             header, _ = Header.parse([malleable])
             if isinstance(header, FragmentHeader):
                 break
-
+    assert part is not None
     cipher_g = malleable[-1] ^ 1  # make result decrypt to: f XOR 1 = g
     with part.open('wb') as f:
         f.write(malleable[0:-1])
@@ -78,7 +78,7 @@ def test_multiple_mac_slices_data_file(tmp_path):
 
 
 @pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
-def test_multiple_mac_slices_qrcode(tmp_path, monkeypatch):
+def test_multiple_mac_slices_qrcode(tmp_path):
     # Use larger mac digest so test works with fewer fragments
     algo = "hmac-sha512"
     encoder = qrcode.encoder(tmp_path, "test secret", mac_algorithm=algo)

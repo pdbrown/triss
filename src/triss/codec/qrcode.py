@@ -310,7 +310,7 @@ class QRReader(FileReader):
 
     def read_file(self, path, *, seek=0):
         data = qr_decode(path)
-        yield(data[seek:])
+        yield data[seek:]
 
     def find_files(self):
         for d in self.in_dirs:

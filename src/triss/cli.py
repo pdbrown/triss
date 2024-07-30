@@ -66,7 +66,7 @@ def cli():
 
 
     args = parser.parse_args()
-    core.python_version_check(args)
+    core.python_version_check()
     fmt = args.c or 'ALL'
     if args.verbose:
         util.verbose(True)

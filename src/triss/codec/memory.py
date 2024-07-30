@@ -41,7 +41,7 @@ class MemoryStore(Writer, Reader):
                 yield((k, data))
 
     def payload_stream(self, tagged_input):
-        header, k = tagged_input
+        _, k = tagged_input
         (_, payload) = self.parts[k]
         return [payload]
 

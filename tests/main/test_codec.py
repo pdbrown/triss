@@ -1,15 +1,14 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-import pytest
-
 import itertools
 
-from .. import helpers
+import pytest
 
 from triss.byte_streams import resize_seqs
 from triss.codec import memory, data_file, qrcode
 from triss.header import Header, FragmentHeader
+from .. import helpers
 
 def test_fragment_header():
     h = FragmentHeader(aset_id=1,

@@ -1,19 +1,19 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-import pytest
-from hypothesis import given, strategies as st
 import itertools
 from pathlib import Path
 import random
 import shutil
 import tempfile
 
-from . import gen_common # noqa: F401
-from .. import helpers
+import pytest
+from hypothesis import given, strategies as st
 
 from triss.codec import data_file
 from triss.header import Header, IntField, StrField
+from . import gen_common # noqa: F401
+from .. import helpers
 
 def flip_bit(shares):
     share = random.choice(shares)
@@ -44,7 +44,7 @@ def corrupt_header(shares):
     part = random.choice(list(share.iterdir()))
     with part.open('rb+') as f:
         data = f.read()
-        (header, bs) = Header.parse([data])
+        (header, _) = Header.parse([data])
         fields = [v
                   for v
                   in header.__fields__.values()

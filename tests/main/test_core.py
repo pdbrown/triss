@@ -1,14 +1,13 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-import pytest
-
 import shutil
 import random
 
-from .. import helpers
+import pytest
 
 from triss import core
+from .. import helpers
 
 def select_m_shares(m):
     def fn(share_dir):

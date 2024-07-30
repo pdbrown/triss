@@ -13,8 +13,8 @@ def header_name(header):
     def to_str(x):
         if isinstance(x, bytes):
             return x.decode(encoding='utf-8')
-        else:
-            return str(x)
+        return str(x)
+
     return ".".join(to_str(x) for x in header.to_key()) + ".dat"
 
 

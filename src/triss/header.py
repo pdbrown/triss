@@ -54,6 +54,12 @@ class StrField(BytesField):
         return super().generate(s.encode('utf-8'))
 
 class Header:
+    """
+    Abstract Header class.
+
+    Subclasses define __fields__ and __key_fields__ class attributes.
+    """
+
     def __init__(self, **info):
         """
         Construct Header given INFO kwargs.

@@ -14,7 +14,7 @@ from triss.byte_streams import resize_seqs
 from triss.codec import MacWarning, Reporter, data_file, qrcode
 from triss.util import eprint, iter_str, print_exception, verbose
 
-def python_version_check(args):
+def python_version_check():
     """
     Assert python version.
 

@@ -1,20 +1,20 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-import pytest
-from hypothesis import example, given, settings, strategies as st
 import itertools
 from pathlib import Path
 import random
 import tempfile
 
-from .. import helpers
-from . import gen_common # noqa: F401
-from .gen_common import m_and_n
+import pytest
+from hypothesis import example, given, settings, strategies as st
 
 from triss.byte_streams import resize_seqs
 from triss.codec import memory, data_file, qrcode
 from triss.codec.qrcode import QR_DATA_SIZE_BYTES
+from .. import helpers
+from . import gen_common # noqa: F401
+from .gen_common import m_and_n
 
 @given(data=st.lists(st.binary(min_size=1), min_size=1), m_n=m_and_n())
 def test_memory_codec(data, m_n):

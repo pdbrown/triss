@@ -1,14 +1,14 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-from hypothesis import example, given, settings, strategies as st
 import copy
 import random
 
-from . import gen_common # noqa: F401
+from hypothesis import example, given, settings, strategies as st
 
 from triss import byte_streams
 from triss import crypto
+from . import gen_common # noqa: F401
 
 @st.composite
 def byte_strings_and_head_length(draw):

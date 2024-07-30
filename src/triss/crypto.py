@@ -17,8 +17,8 @@ def fletchers_checksum_16(xs):
     c = 0
     n = 0
     for x in xs:
-        n = (n + x)  # running sum, order independent
-        c = (c + n)  # sum of running sums, depends on order
+        n = n + x  # running sum, order independent
+        c = c + n  # sum of running sums, depends on order
     return bytes([c % 255, n % 255])
 
 

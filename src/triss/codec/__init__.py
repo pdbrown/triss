@@ -52,10 +52,10 @@ class Appender(Writer):
 
     to previously written outputs.
     """
-    def append(self, share_id, aset_id, fragment_id, payload):
+    def append(self, share_id, header, chunk):
         """
-        Append PAYLOAD bytes to the output identified by SHARE_ID, ASET_ID,
-        and FRAGMENT_ID.
+        Append CHUNK bytes to the output identified by HEADER in share
+        SHARE_ID.
         """
         raise NotImplementedError()
 
@@ -479,7 +479,7 @@ class MacLoader:
         try:
             (fragment_id0, mac_parts0) = next(aset_macs)
         except StopIteration:
-            return
+            return mac_index
         (header0, data0) = self.concat_mac_parts(mac_parts0, aset_id, fragment_id0)
         (frag_macs0, digest_index0) = get_macs(header0, data0, aset_id, fragment_id0)
         index_macs(fragment_id0, frag_macs0)
