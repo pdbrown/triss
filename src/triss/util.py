@@ -6,14 +6,17 @@ import traceback
 
 _verbose = False
 
+
 def verbose(v=None):
     global _verbose
     if v is not None:
         _verbose = v
     return _verbose
 
+
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
+
 
 def print_exception(e, prefix="", file=None):
     # Set default at runtime vs def-time, so caller can call this with an
@@ -39,8 +42,10 @@ def print_exception(e, prefix="", file=None):
         if e.__cause__:
             print_exception(e.__cause__, prefix=prefix + "  ", file=file)
 
+
 def iter_str(xs):
     return ", ".join(str(x) for x in xs)
+
 
 def div_up(x, quot):
     return (x + quot - 1) // quot

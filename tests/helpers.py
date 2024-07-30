@@ -15,6 +15,7 @@ try:
 except Exception:
     HAVE_QRCODE = False
 
+
 def save_test_files(temporary_dir):
     """
     Call this to preserve test data files.
@@ -35,6 +36,7 @@ def save_test_files(temporary_dir):
             eprint(f"Output: {e.output}")
     print("Saved test files to", save_dir)
     return Path(save_dir)
+
 
 def kb_stream(stream):
     return byte_streams.resize_seqs(1024, stream)

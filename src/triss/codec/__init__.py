@@ -17,7 +17,6 @@ Codec = namedtuple("Codec", ["encoder", "decoder"])
 ###############################################################################
 # Encoder
 
-
 class Writer:
     """
     An Encoder uses a Writer to emit output.
@@ -292,7 +291,6 @@ class AppendingEncoder(Encoder):
         return n_segments
 
 
-
 ###############################################################################
 # Decoder
 
@@ -377,6 +375,7 @@ class MacLoader:
     def concat_mac_parts(self, mac_parts, aset_id, fragment_id):
         # mac_parts is dict: {slice_id: part}
         slice_count = len(mac_parts)
+
         def get_part(slice_id):
             try:
                 return mac_parts[slice_id]
@@ -460,6 +459,7 @@ class MacLoader:
         # aset_macs: fragment_id -> slice_id -> TaggedInput
         # iter[(fragment_id, dict[slice_id, TaggedInput(MacHeader Path)])]
         aset_macs = iter(aset_macs)
+
         def get_macs(header, data, aset_id, aset_fragment_id):
             try:
                 return self.fragment_macs_digest_index(header, data)
@@ -471,6 +471,7 @@ class MacLoader:
 
         mac_index = defaultdict(dict)
         self.decoder.reference_macs[aset_id] = mac_index
+
         def index_macs(fragment_id, fragment_macs):
             for segment_id, reference_mac in fragment_macs.items():
                 mac_index[segment_id][fragment_id] = reference_mac
@@ -740,6 +741,7 @@ class Decoder:
                 "are no fragments to decrypt.")
 
         macs_valid = True
+
         def mac_error(msg, cause=None):
             nonlocal macs_valid
             macs_valid = False
@@ -843,8 +845,8 @@ class Reporter():
         aset_ids = sorted({frag.header.aset_id for frag in segment})
         for aset_id in aset_ids:
             try:
-                aset_segment_macs = self.decoder.mac_loader.load_macs(aset_id,
-                                                              segment_id)
+                aset_segment_macs = self.decoder.mac_loader \
+                                                .load_macs(aset_id, segment_id)
                 computed_macs[aset_id] = {
                     fragment_id: crypto.new_mac(reference_mac.key,
                                                 reference_mac.algorithm)

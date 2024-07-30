@@ -7,6 +7,7 @@ import sys
 from triss import core, util
 from triss.util import print_exception
 
+
 def cli():
     parser = argparse.ArgumentParser(
         prog="triss",
@@ -30,8 +31,8 @@ def cli():
                    help="path to input file, read from stdin if omitted")
     s.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
                    default=core.DEFAULT_FORMAT,
-                   help="output file format, defaults to " + \
-                         core.DEFAULT_FORMAT)
+                   help="output file format, defaults to " +
+                   core.DEFAULT_FORMAT)
     s.add_argument('-t', type=str, required=False, default="Split Secret",
                    metavar='SECRET_NAME',
                    help="name of secret to include on QRCODE images")
@@ -64,7 +65,6 @@ def cli():
     m.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
                    help="input file format, will guess if omitted")
 
-
     args = parser.parse_args()
     core.python_version_check()
     fmt = args.c or 'ALL'
@@ -90,6 +90,7 @@ def main():
     except Exception as e:
         print_exception(e)
         return 1
+
 
 if __name__ == '__main__':
     sys.exit(main())

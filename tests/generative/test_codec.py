@@ -13,8 +13,9 @@ from triss.byte_streams import resize_seqs
 from triss.codec import memory, data_file, qrcode
 from triss.codec.qrcode import QR_DATA_SIZE_BYTES
 from .. import helpers
-from . import gen_common # noqa: F401
+from . import gen_common  # noqa: F401
 from .gen_common import m_and_n
+
 
 @given(data=st.lists(st.binary(min_size=1), min_size=1), m_n=m_and_n())
 def test_memory_codec(data, m_n):
@@ -25,6 +26,7 @@ def test_memory_codec(data, m_n):
     decoder.reader.select_authorized_set(aset)
     decoded = list(decoder.decode())
     assert decoded == data
+
 
 @given(data=st.lists(st.binary()), m_n=m_and_n())
 def test_file_encoder_decoder(data, m_n):
@@ -38,6 +40,7 @@ def test_file_encoder_decoder_large(byte_count, m_n):
     all_bytes = random.randbytes(byte_count)
     data = list(resize_seqs(4096, [all_bytes]))
     do_file_encoder_decoder(data, m_n)
+
 
 def do_file_encoder_decoder(data, m_n):
     with tempfile.TemporaryDirectory() as d:
@@ -64,9 +67,9 @@ def do_file_encoder_decoder(data, m_n):
        m_n=m_and_n(n=st.integers(min_value=2, max_value=4)))
 @settings(max_examples=10, deadline=60000)
 # Want at least one example that spans multiple segments
-@example(data=[random.randbytes(3000)], m_n=(2,4))
+@example(data=[random.randbytes(3000)], m_n=(2, 4))
 # Want an example consisting of full segment.
-@example(data=[random.randbytes(QR_DATA_SIZE_BYTES)], m_n=(2,3))
+@example(data=[random.randbytes(QR_DATA_SIZE_BYTES)], m_n=(2, 3))
 def test_qr_encoder_decoder(data, m_n):
     do_qr_encoder_decoder(data, m_n)
 
@@ -77,6 +80,7 @@ def test_qr_encoder_decoder(data, m_n):
 @settings(max_examples=10, deadline=60000)
 def test_qr_encoder_decoder_more_shares(data, m_n):
     do_qr_encoder_decoder(data, m_n)
+
 
 def do_qr_encoder_decoder(data, m_n):
     with tempfile.TemporaryDirectory() as d:

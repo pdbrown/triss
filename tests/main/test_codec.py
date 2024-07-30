@@ -10,6 +10,7 @@ from triss.codec import memory, data_file, qrcode
 from triss.header import Header, FragmentHeader
 from .. import helpers
 
+
 def test_fragment_header():
     h = FragmentHeader(aset_id=1,
                        segment_id=2, segment_count=3,
@@ -35,6 +36,7 @@ def test_fragment_header():
     assert parsed.version == h.version
     assert parsed.tag == h.tag
 
+
 def test_memory_codec():
     encoder, decoder = memory.codec()
     data = [b'asdf', b'qwer']
@@ -50,6 +52,7 @@ def test_memory_codec():
         # print(f"Result: {decoded}")
         assert decoded == data
 
+
 def test_file_encoder_decoder(tmp_path):
     data = [b'asdf', b'qwer']
     data_out = [b'asd', b'fqw', b'er']
@@ -61,6 +64,7 @@ def test_file_encoder_decoder(tmp_path):
         shares = [tmp_path / f"share-{i}" for i in aset]
         decoder = data_file.decoder(shares)
         assert list(resize_seqs(3, decoder.decode())) == data_out
+
 
 @pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
 def test_qr_encoder_decoder(tmp_path):

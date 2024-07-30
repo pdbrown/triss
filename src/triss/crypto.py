@@ -8,6 +8,7 @@ import math
 import re
 import secrets
 
+
 def fletchers_checksum_16(xs):
     """
     Return 2 byte fletcher's checksum of bytes in XS.
@@ -70,6 +71,7 @@ def combine_fragments(fragments):
     return secret_bytes
 
 # list(combine_fragments(split_secret([0, 1, 2, 3, 4, 5, 6, 7, 8], 3)))
+
 
 def m_of_n_access_structure(m, n):
     """
@@ -189,6 +191,7 @@ DEFAULT_ALGORITHM = "hmac-sha384"
 # digest, e.g. 48 bytes (384 bits) for hmac-sha384.
 MAX_KEY_SIZE = 64 * 1024
 
+
 @functools.lru_cache
 def digest_size_bytes(algo):
     if not algo.startswith("hmac-"):
@@ -198,10 +201,12 @@ def digest_size_bytes(algo):
     digestmod = re.sub('^hmac-', '', algo.lower())
     return hmac.new(b'', digestmod=digestmod).digest_size
 
+
 def new_mac_key(algo=DEFAULT_ALGORITHM):
     # At least 256 bits (32 bytes) of key material.
     key_size = max(32, digest_size_bytes(algo))
     return secrets.token_bytes(key_size)
+
 
 def new_mac(key, algo=DEFAULT_ALGORITHM):
     """
@@ -219,5 +224,6 @@ def new_mac(key, algo=DEFAULT_ALGORITHM):
             f"{MAX_KEY_SIZE}")
     digestmod = re.sub('^hmac-', '', algo.lower())
     return hmac.new(bytes(key), digestmod=digestmod)
+
 
 digests_equal = hmac.compare_digest

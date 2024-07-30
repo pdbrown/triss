@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from triss.codec import Codec, Writer, Reader, Encoder, Decoder
 
+
 class MemoryStore(Writer, Reader):
     """
     A MemoryStore implements in-memory secret splits for testing.
@@ -38,7 +39,7 @@ class MemoryStore(Writer, Reader):
         for share_id in self.decoder_share_ids:
             for k in self.shares[share_id]:
                 data = self.parts[k]
-                yield((k, data))
+                yield (k, data)
 
     def payload_stream(self, tagged_input):
         _, k = tagged_input

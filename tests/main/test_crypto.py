@@ -24,6 +24,7 @@ def test_xor_bytes():
     assert xor_bytes(xs, zs) == ys
     assert xor_bytes(ys, zs) == xs
 
+
 def test_split_combine():
     xs = b'asdf'
     zeros = b'\x00\x00\x00\x00'
@@ -39,7 +40,7 @@ def test_split_combine():
 
     for frag in frags:
         assert frag != xs
-    for subset in [[0], [1], [2], [0,1], [0,2], [1,2]]:
+    for subset in [[0], [1], [2], [0, 1], [0, 2], [1, 2]]:
         check_frags = [frags[i] for i in subset]
         assert combine_fragments(check_frags) != xs
     assert combine_fragments(frags) == xs

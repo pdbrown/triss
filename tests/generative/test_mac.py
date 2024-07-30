@@ -12,8 +12,9 @@ from hypothesis import given, strategies as st
 
 from triss.codec import data_file
 from triss.header import Header, IntField, StrField
-from . import gen_common # noqa: F401
+from . import gen_common  # noqa: F401
 from .. import helpers
+
 
 def flip_bit(shares):
     share = random.choice(shares)
@@ -27,6 +28,7 @@ def flip_bit(shares):
         f.seek(i)
         f.write(bytes([b]))
 
+
 def delete_bytes(shares):
     share = random.choice(shares)
     part = random.choice(list(share.iterdir()))
@@ -38,6 +40,7 @@ def delete_bytes(shares):
         f.seek(0)
         f.truncate()
         f.write(new_data)
+
 
 def corrupt_header(shares):
     share = random.choice(shares)
@@ -60,6 +63,7 @@ def corrupt_header(shares):
         setattr(header, field.name, v)
         f.seek(0)
         f.write(header.to_bytes())
+
 
 @given(data=st.lists(st.binary(min_size=1), min_size=1),
        n=st.integers(min_value=2, max_value=10))

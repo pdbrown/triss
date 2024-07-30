@@ -11,6 +11,7 @@ n_threads = int(max(multiprocessing.cpu_count() / 2, 1))
 
 success = True
 
+
 def tprint(tid, *objects, **kwargs):
     if tid is not None:
         print(f"[thread {tid}]", *objects, **kwargs)
@@ -40,6 +41,7 @@ def stress_qr_codec(tid, tmp_path):
         global success
         success = False
         raise e
+
 
 def test_stress_qr_codec(tmp_path):
     threads = []

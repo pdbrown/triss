@@ -126,7 +126,7 @@ def find_font(size):
 
 
 def font_height(font, text, spacing=4):
-    img = Image.new("RGBA", (1,1))
+    img = Image.new("RGBA", (1, 1))
     d = ImageDraw.Draw(img)
     (left, top, right, bottom) = d.multiline_textbbox(
         (0, 0), text, font=font, spacing=spacing)
@@ -197,7 +197,8 @@ class QRWriter(FileWriter):
 
     def fragment_caption(self, header):
         subtitle = (f"Share {header.metadata.share_id} - "
-                    f"Part {header.metadata.part_number}/{self.n_parts_per_share}\n"
+                    f"Part {header.metadata.part_number}/"
+                    f"{self.n_parts_per_share}\n"
                     f"Recover secret with {self.m} of {self.n} shares.\n"
                     f"Require all parts of each share.")
         detail = (
@@ -210,7 +211,8 @@ class QRWriter(FileWriter):
 
     def mac_caption(self, header):
         subtitle = (f"Share {header.metadata.share_id} - "
-                    f"Part {header.metadata.part_number}/{self.n_parts_per_share}\n"
+                    f"Part {header.metadata.part_number}/"
+                    f"{self.n_parts_per_share}\n"
                     f"Recover secret with {self.m} of {self.n} shares.\n"
                     f"Require all parts of each share.")
         detail = ("==== Part Details ====\n"

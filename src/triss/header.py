@@ -21,19 +21,24 @@ class Field:
     def __repr__(self):
         return f"{type(self).__name__}({self.name}, {self.size})"
 
+
 def fields_by_name(*fields):
     return {f.name: f for f in fields}
 
+
 class IntField(Field):
     default = 0
+
     def parse(self, data):
         return int.from_bytes(data[0:self.size], byteorder='big', signed=False)
 
     def generate(self, x):
         return x.to_bytes(length=self.size, byteorder='big', signed=False)
 
+
 class BytesField(Field):
     default = b''
+
     def parse(self, data):
         return data[0:self.size]
 
@@ -45,13 +50,16 @@ class BytesField(Field):
         zpadding = b'\0' * (self.size - len(data))
         return data + zpadding
 
+
 class StrField(BytesField):
     default = ""
+
     def parse(self, data):
         return super().parse(data).decode('utf-8').rstrip("\0")
 
     def generate(self, s):
         return super().generate(s.encode('utf-8'))
+
 
 class Header:
     """
@@ -171,6 +179,7 @@ class FragmentHeader(Header):
         IntField("fragment_id", 4),
         IntField("fragment_count", 4))
     __key_fields__ = ["tag", "aset_id", "segment_id", "fragment_id"]
+
 
 class MacHeader(Header):
     __fields__ = fields_by_name(

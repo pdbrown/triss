@@ -10,6 +10,7 @@ from triss.codec import MacWarning, data_file, qrcode
 from triss.header import Header, FragmentHeader
 from .. import helpers
 
+
 def test_hmac_512(tmp_path):
     algo = "hmac-sha512"
     data = [b'asdf', b'qwer']
@@ -28,6 +29,7 @@ def test_hmac_512(tmp_path):
         assert len(mac.key) == 512 // 8
         assert len(mac.digest) == 512 // 8
 
+
 def test_invalid_mac(tmp_path):
     data = [b'asdf']
     modified = [b'asdg']
@@ -38,7 +40,7 @@ def test_invalid_mac(tmp_path):
     shares = list(tmp_path.iterdir())
 
     # Find part with the FragmentHeader
-    share0  = shares[0]
+    share0 = shares[0]
     part = None
     for part in share0.iterdir():
         with part.open('rb') as f:

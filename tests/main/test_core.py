@@ -9,12 +9,14 @@ import pytest
 from triss import core
 from .. import helpers
 
+
 def select_m_shares(m):
     def fn(share_dir):
         shares = list(share_dir.iterdir())
         random.shuffle(shares)
         return shares[0:m]
     return fn
+
 
 def select_m_shares_and_duplicate_fragment(m):
     def fn(share_dir):
@@ -23,6 +25,7 @@ def select_m_shares_and_duplicate_fragment(m):
         shutil.copy(fragments[0], shares[0] / "frag_copy.dat")
         return shares
     return fn
+
 
 def select_m_shares_and_corrupt_fragment(m):
     def fn(share_dir):
@@ -50,10 +53,10 @@ def do_split_combine(data, tmp_path, select_shares, fmt='DATA', **args):
     core.do_combine(combine_shares, check_file, input_format=fmt)
 
 
-
 def test_data(tmp_path):
     data = random.randbytes(16000)
     do_split_combine(data, tmp_path, select_m_shares(2), fmt='DATA', m=2, n=3)
+
 
 @pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
 def test_qrcode(tmp_path):
@@ -67,10 +70,12 @@ def test_missing_share(tmp_path):
     with pytest.raises(RuntimeError):
         do_split_combine(data, tmp_path, select_m_shares(1), m=2, n=3)
 
+
 def test_duplicate_fragment(tmp_path):
     data = random.randbytes(2000)
     do_split_combine(data, tmp_path, select_m_shares_and_duplicate_fragment(2),
                      m=2, n=3)
+
 
 def test_ignore_corrupted_fragment(tmp_path):
     data = random.randbytes(2000)

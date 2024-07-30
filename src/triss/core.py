@@ -14,6 +14,7 @@ from triss.byte_streams import resize_seqs
 from triss.codec import MacWarning, Reporter, data_file, qrcode
 from triss.util import eprint, iter_str, print_exception, verbose
 
+
 def python_version_check():
     """
     Assert python version.
@@ -33,7 +34,8 @@ def python_version_check():
         eprint(sys.version)
         sys.exit(1)
 
-DEFAULT_FORMAT='DATA'
+
+DEFAULT_FORMAT = 'DATA'
 DECODERS = {
     'DATA': [data_file.decoder],
     'QRCODE': [qrcode.decoder],
@@ -51,6 +53,7 @@ def open_input(path):
     else:
         return contextlib.nullcontext(sys.stdin.buffer)
 
+
 def open_output(path):
     if path:
         try:
@@ -64,12 +67,14 @@ def open_output(path):
 
 BUFFER_SIZE = 4096 * 16
 
+
 def read_buffered(path):
     with open_input(path) as f:
         chunk = f.read1(BUFFER_SIZE)
         while chunk:
             yield chunk
             chunk = f.read1(BUFFER_SIZE)
+
 
 def authorized_share_sets(share_parent_dir, m):
     share_dirs = Path(share_parent_dir).iterdir()
@@ -91,6 +96,7 @@ def assert_byte_streams_equal(bs_x, bs_y, err_msg="Byte streams not equal!"):
             raise AssertionError(err_msg)
         except StopIteration:
             pass
+
 
 def assert_all_authorized_sets_combine(in_file, out_dir, m, input_format):
     eprint("Ensuring input can be recovered by combining split shares.")
@@ -139,7 +145,8 @@ def do_split(in_file, out_dir, *, output_format=DEFAULT_FORMAT, m, n,
             if hasattr(os, 'sync'):
                 os.sync()
             if not skip_combine_check:
-                assert_all_authorized_sets_combine(in_file, out_dir, m, output_format)
+                assert_all_authorized_sets_combine(
+                    in_file, out_dir, m, output_format)
             eprint("Split input successfully!")
     except Exception as e:
         if hasattr(captured_err, 'getvalue'):
@@ -148,7 +155,6 @@ def do_split(in_file, out_dir, *, output_format=DEFAULT_FORMAT, m, n,
                 eprint(err, end='')
         raise Exception(
             f"Failed to split secret in {output_format} format.") from e
-
 
 
 def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
@@ -173,7 +179,7 @@ def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
                     f.write(chunk)
                     n_chunks += 1
             f.flush()
-            if out_file: # then f is not sys.stdout.buffer, so we can fsync
+            if out_file:  # then f is not sys.stdout.buffer, so we can fsync
                 os.fsync(f.fileno())
         if n_chunks > 0:
             if verbose():
@@ -201,7 +207,8 @@ def do_combine(dirs, out_file, input_format='ALL', ignore_mac_error=False):
         # Don't interfere with stderr
         cm = contextlib.nullcontext(None)
     else:
-        # Suppress stderr, only print it if none of the decoders are successful.
+        # Suppress stderr, only print it if none of the decoders are
+        # successful.
         cm = contextlib.redirect_stderr(io.StringIO())
     try:
         with cm as captured_err:

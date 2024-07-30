@@ -5,6 +5,7 @@ import pytest
 
 from triss.byte_streams import take_and_drop, resize_seqs
 
+
 def test_take_and_drop():
     bs = [b'asdf', b'qwer', b'zxcv']
     head, bs = take_and_drop(0, bs)
@@ -25,6 +26,7 @@ def test_take_and_drop():
 
     with pytest.raises(StopIteration):
         take_and_drop(1, bs)
+
 
 def test_resize_seqs():
     assert list(resize_seqs(1024, [])) == []

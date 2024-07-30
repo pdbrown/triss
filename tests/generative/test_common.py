@@ -8,7 +8,8 @@ from hypothesis import example, given, settings, strategies as st
 
 from triss import byte_streams
 from triss import crypto
-from . import gen_common # noqa: F401
+from . import gen_common  # noqa: F401
+
 
 @st.composite
 def byte_strings_and_head_length(draw):
@@ -24,6 +25,7 @@ def byte_strings_and_head_length(draw):
         size += len(bs)
     n = draw(st.integers(min_value=0, max_value=size))
     return (n, byte_strings)
+
 
 def flatten_chunks(xs):
     return b''.join(xs)
