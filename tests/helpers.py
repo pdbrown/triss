@@ -11,7 +11,7 @@ from triss.codec import qrcode
 try:
     qrcode.encoder(".", "dummy")
     qrcode.decoder(["."])
-    HAVE_QRCODE = True
+    HAVE_QRCODE = qrcode.HAVE_PIL
 except Exception:
     HAVE_QRCODE = False
 

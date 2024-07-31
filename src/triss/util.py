@@ -29,7 +29,7 @@ def print_exception(e, prefix="", file=None):
     if e.__context__ and e.__context__ != e.__cause__:
         print(prefix, "Tried to handle error:", sep='', file=file)
         print_exception(e.__context__, prefix=prefix, file=file)
-        print(prefix, "But another error in error handler:", sep='', file=file)
+        print(prefix, "But got another error in error handler:", sep='', file=file)
     if isinstance(e, ExceptionGroup):
         print(prefix, e.message, sep='', file=file)
         for sub_e in e.exceptions:

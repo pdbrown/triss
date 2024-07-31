@@ -7,12 +7,13 @@ VERSION := $(shell awk -F\" '/^version/ { print $$2 }' pyproject.toml)
 SRC := $(shell find src)
 TEST_SRC := $(shell find tests)
 PYTEST := $(PYTHON) -m pytest
+MODULE := '.[qrcode,test]'
 
 assert-venv:
 	@test $${VIRTUAL_ENV?Is unset. Must be in a venv.}
 
 dist/triss-$(VERSION).tar.gz: pyproject.toml $(SRC) $(TEST_SRC) | assert-venv
-	$(PIP) install '.[qrcode,test]'
+	$(PIP) install $(MODULE)
 	$(PIP) install --upgrade build
 	$(MAKE) test
 	$(PYTHON) -m build
@@ -30,7 +31,7 @@ docker: sign
 	$(DOCKER) build -t triss:$(VERSION) .
 
 dev: | assert-venv
-	$(PIP) install --editable '.[qrcode,test]'
+	$(PIP) install --editable $(MODULE)
 
 test: | assert-venv
 	$(PYTEST) -v -k "$(TESTS)" -W error::UserWarning tests/main tests/generative

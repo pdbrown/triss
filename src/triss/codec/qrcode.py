@@ -6,7 +6,11 @@ from pathlib import Path
 import re
 import subprocess
 
-from PIL import Image, ImageDraw, ImageFont
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    HAVE_PIL = True
+except ModuleNotFoundError:
+    HAVE_PIL = False
 
 from triss import byte_streams
 from triss.codec import Encoder, Decoder
@@ -38,6 +42,16 @@ def eprint_stdout_stderr(proc):
 def eprint_stderr(proc):
     if proc.stderr:
         eprint(proc.stderr.decode('utf-8').strip())
+
+
+def ensure_pil():
+    if not HAVE_PIL:
+        raise RuntimeError(
+            "Error: QRCODE output format requires the Python Image Library "
+            "(PIL) as provided by the pillow dist package, but it is not "
+            "available.\n"
+            "Try reinstalling triss:   pip install 'triss[qrcode]'\n"
+            "or try installing pillow: pip install pillow")
 
 
 def ensure_prog(cmdline, reason):
@@ -188,6 +202,7 @@ class QRWriter(FileWriter):
     def __init__(self, out_dir, secret_name):
         super().__init__(out_dir)
         self.secret_name = secret_name
+        ensure_pil()
         ensure_prog(['qrencode', '--version'], "to encode QRCODEs")
 
     def summary(self, encoder):
