@@ -28,9 +28,9 @@ dist/SHA256SUMS.asc: dist/triss-$(VERSION).tar.gz
 
 sign: dist/SHA256SUMS.asc
 
-publish: dist/SHA256SUMS.asc
-	$(PYTHON) install --upgrade twine
-	$(PYTHON) -m twine --repository $(PYPI) dist/*.whl dist/*.tar.gz
+publish: dist/SHA256SUMS.asc | assert-venv
+	$(PIP) install --upgrade twine
+	$(PYTHON) -m twine upload --repository $(PYPI) dist/*.whl dist/*.tar.gz
 
 docker: sign
 	$(DOCKER) build -t triss:$(VERSION) .
