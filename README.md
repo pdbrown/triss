@@ -77,23 +77,24 @@ See also [implementation details](#implementation-details) below.
 ## Installation
 
 ### Prerequisites
-Triss is a python program that requires python `3.11` or newer. There are no
-additional prerequisites for `DATA` file mode, but the `QRCODE` mode depends on
-external programs [`qrencode`](https://github.com/fukuchi/libqrencode) for
-splitting/encoding and [`zbarimg`](https://github.com/mchehab/zbar) for
-combining/decoding.
+Triss requires python `3.11` or newer. There are no additional prerequisites for
+`DATA` file mode, but `QRCODE` support depends on 3rd party libraries and
+external programs.
 
-| Dependency  | Minimum Version |   Released |
-|-------------|-----------------|------------|
-| python      |            3.11 | 2022-10-24 |
-| qrencode    |           4.1.1 | 2020-09-28 |
-| zbarimg     |          0.23.1 | 2020-04-20 |
+| Dependency                                          | Type             | Feature        | Minimum Version |   Released |
+|-----------------------------------------------------|------------------|----------------|-----------------|------------|
+| python                                              |                  |                |            3.11 | 2022-10-24 |
+| [`pillow`](https://pypi.org/project/pillow/)        | Python Library   | QRCODE split   |          10.4.0 | 2024-07-01 |
+| [`qrencode`](https://github.com/fukuchi/libqrencode)| External Program | QRCODE split   |           4.1.1 | 2020-09-28 |
+| [`zbarimg`](https://github.com/mchehab/zbar)        | External Program | QRCODE combine |          0.23.1 | 2020-04-20 |
 
 Note the minimum version of `zbarimg` is a hard requirement, because support for
-binary data was added in `0.23.1`. Older versions of `qrencode` may work, but
-haven't been tested.
+binary data was added in `0.23.1`. Older versions of `qrencode` and `pillow` may
+work, but haven't been tested.
 
-Python is available at https://www.python.org/downloads/.
+Python is available at https://www.python.org/downloads, and you may need to
+install it manually. `triss` and `pillow` are installed by `pip`, [see
+below](#dist-package), and external programs can be installed as follows:
 
 #### Debian / Ubuntu
 ```bash
@@ -122,6 +123,8 @@ from source, see https://github.com/mchehab/zbar.
 
 
 ### Dist Package
+Install `triss` itself, along with its python library dependencies.
+
 The following steps usually happen in a python virtual environment. Set one up
 like this:
 ```bash
@@ -130,15 +133,25 @@ $(command -v python3 || command -v python) -m venv venv
 source venv/bin/activate
 ```
 
+#### Direct pip install
+
 Then either install `triss` from [pypi](https://pypi.org/) directly without
 verification:
 ```bash
+# Install triss with support for QRCODE output format:
+pip install 'triss[qrcode]'
+
+# or without it (QRCODE inputs to the `combine` command are supported either way)
 pip install triss
 ```
+
+#### Or install with verification
 
 Or download, verify, and install:
 ```bash
 # Download
+pip download 'triss[qrcode]'
+# or
 pip download triss
 
 # Import my gpg key
@@ -153,7 +166,7 @@ gpg --verify SHA256SUMS.asc
 sha256sum --check SHA256SUMS
 
 # Install
-pip install triss-1.0-py3-none-any.whl
+pip install *.whl
 ```
 
 
