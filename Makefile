@@ -20,12 +20,12 @@ dist/triss-$(VERSION).tar.gz: pyproject.toml $(SRC) $(TEST_SRC) | assert-venv
 
 build: dist/triss-$(VERSION).tar.gz
 
-sign:
-	rm -rf dist
-	$(MAKE) build
+dist/SHA256SUMS.asc: dist/triss-$(VERSION).tar.gz
 	cd dist && \
-	  sha256sum * > SHA256SUMS && \
+	  sha256sum triss* > SHA256SUMS && \
 	  gpg $(GPG_OPTS) --sign --detach-sig --armor SHA256SUMS
+
+sign: dist/SHA256SUMS.asc
 
 docker: sign
 	$(DOCKER) build -t triss:$(VERSION) .

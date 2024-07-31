@@ -1,17 +1,11 @@
 # syntax=docker/dockerfile:1.7.1
 #                          ^- pin latest version on 2024-05-23
 
-# Pull image with:
-#  DOCKER_CONTENT_TRUST=1 docker pull debian:stable
-# Then use its sha256 digest in Dockerfile here.
-FROM debian:stable@sha256:82f8da149d6d567c74564cccd6f355fb5ade42a958e4cde10a1100eaeb24d42e as base
-#FROM debian:stable as base
+FROM debian:stable as base
 
 WORKDIR /app
 RUN <<EOF bash
     set -ex
-    adduser --disabled-password --comment '' user
-    chown -R user:user /app
     apt-get update
     apt-get install -y python3
 EOF
@@ -54,7 +48,6 @@ FROM base as app
 RUN apt-get install -y qrencode zbar-tools
 
 COPY --from=builder --link /venv /venv
-USER user
 
 # Don't write .pyc files. They won't survive a container restart anyway.
 ENV PYTHONDONTWRITEBYTECODE=1
