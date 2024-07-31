@@ -378,7 +378,8 @@ make docker DOCKER=podman
 # The container entrypoint is the triss cli, and the image contains an /app
 # directory, so you can do:
 echo "General Kenobi." > secret.txt
-docker run --rm -v .:/app triss:latest \
+VERSION=$(awk -F\" '/^version/ { print $2 }' pyproject.toml)
+docker run --rm -v .:/app triss:"$VERSION" \
     split -i /app/secret.txt -c QRCODE -m 2 3 /app/shares
 
 # And find the shares here:
@@ -711,4 +712,4 @@ attacker with partial knowledge of the keystream to determine more of it.
 
 GNU General Public License v3.0 or later
 
-See [COPYING](COPYING) to see the full text.
+See [COPYING](COPYING) for the full text.

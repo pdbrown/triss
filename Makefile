@@ -2,6 +2,7 @@ PYTHON := python
 PIP := pip
 TESTS := .
 DOCKER := docker
+PYPI := testpypi
 
 VERSION := $(shell awk -F\" '/^version/ { print $$2 }' pyproject.toml)
 SRC := $(shell find src)
@@ -27,6 +28,10 @@ dist/SHA256SUMS.asc: dist/triss-$(VERSION).tar.gz
 
 sign: dist/SHA256SUMS.asc
 
+publish: dist/SHA256SUMS.asc
+	$(PYTHON) install --upgrade twine
+	$(PYTHON) -m twine --repository $(PYPI) dist/*.whl dist/*.tar.gz
+
 docker: sign
 	$(DOCKER) build -t triss:$(VERSION) .
 
@@ -42,4 +47,4 @@ stress: | assert-venv
 clean:
 	git clean -ffdx
 
-.PHONY: assert-venv build sign docker dev test stress clean
+.PHONY: assert-venv build sign publish docker dev test stress clean

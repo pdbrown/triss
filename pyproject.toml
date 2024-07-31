@@ -2,9 +2,9 @@
 name = "triss"
 version = "1.0"
 authors = [{name="Philip Brown", email="pdbrown.git@gmail.com"}]
-description = "Trivial secret sharing with support for M-of-N splits."
+description = "Trivial secret sharing with authentication, support for M-of-N splits, and paper backups."
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
@@ -13,7 +13,7 @@ classifiers = [
 
 [project.optional-dependencies]
 qrcode = [
-    "pillow>=10.3.0"
+    "pillow>=10.4.0"
 ]
 test = [
     "pytest>=8.2.1",
