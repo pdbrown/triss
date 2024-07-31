@@ -11,9 +11,6 @@ from triss.header import Header, FragmentHeader, MacHeader
 from triss.util import eprint, print_exception
 
 
-Codec = namedtuple("Codec", ["encoder", "decoder"])
-
-
 ###############################################################################
 # Encoder
 
@@ -227,7 +224,7 @@ class Encoder:
         n_segments = self.encode_segments(
             secret_data_segments, authorized_sets)
         if n_segments == 0:
-            return
+            raise ValueError("Input is empty, no output produced.")
 
         # Patch FragmentHeaders now that the total number of segments is known.
         # Also mix header bytes into MAC digests.
@@ -404,8 +401,8 @@ class MacLoader:
           own_macs: segment_id -> ReferenceMac
           digests:  (segment_id, fragment_id) -> digest<bytes>
 
-        DATA is obtained by concatenating payloads of Mac parts, each of which
-        has a header. HEADER is one of these Mac part headers (any one of them
+        DATA is obtained by concatenating payloads of Mac slices, each of which
+        has a header. HEADER is one of any Mac slice headers (any one of them
         will do, only need Mac metadata which is replicated in each header).
         DATA is a byte sequence, a Mac key followed by digests for all
         fragments of all segments of an authorized set. The HEADER identifies
@@ -456,8 +453,8 @@ class MacLoader:
                         "of the digest doesn't match the others.")
 
     def build_mac_index(self, aset_id, aset_macs):
-        # aset_macs: fragment_id -> slice_id -> TaggedInput
-        # iter[(fragment_id, dict[slice_id, TaggedInput(MacHeader Path)])]
+        # aset_macs: [(fragment_id, slice_id -> TaggedInput)]
+        # iter[(fragment_id, dict[slice_id, TaggedInput(MacHeader, Path)])]
         aset_macs = iter(aset_macs)
 
         def get_macs(header, data, aset_id, aset_fragment_id):
@@ -466,7 +463,7 @@ class MacLoader:
             except Exception as e:
                 raise RuntimeError(
                     f"Failed to load MACs from fragment_id={aset_fragment_id} "
-                    f"of authorized set {aset_id=} from MAC parts with header:"
+                    f"of authorized set {aset_id=} from MAC slices with header:"
                     f" {header}") from e
 
         mac_index = defaultdict(dict)
@@ -495,7 +492,7 @@ class MacLoader:
             except Exception as e:
                 raise RuntimeError(
                     f"Inconsistent MACs from fragment_id={fragment_id} "
-                    f"of authorized set {aset_id=} from MAC parts with header:"
+                    f"of authorized set {aset_id=} from MAC slices with header:"
                     f" {header}") from e
             index_macs(fragment_id, frag_macs)
         return mac_index
@@ -505,7 +502,7 @@ class MacLoader:
         """
         Ensure SEGMENT_MACS contains an entry for each fragment.
 
-        SEGMENT_MACS is dict of fragment_id -> ReferenceMac
+        SEGMENT_MACS is dict of fragment_id -> ReferenceMac.
         A ReferenceMac is a namedtuple of key, digest, algorithm.
         """
         if len(segment_macs) != fragment_count:
@@ -561,8 +558,10 @@ class Decoder:
 
     ## Implementation
     def print_registered_headers(self, file=sys.stdout):
+
         def pr(*args):
             print(f"{self.name}:", *args, file=file)
+
         if hasattr(self, 'frags_by_segment') and self.frags_by_segment:
             pr("Found data fragments:")
             for header, handle in sorted(
@@ -758,7 +757,7 @@ class Decoder:
 
         headers = [tf.header for tf in authorized_set]
 
-        # Each fragment header in authorized_set has the same aset_id and
+        # Each fragment header of the authorized_set has the same aset_id and
         # payload_size, so read the first one.
         aset_id = headers[0].aset_id
         payload_size = headers[0].payload_size
@@ -825,10 +824,10 @@ class Decoder:
 
 class Reporter():
     """
-    A Reporter provides the "identify" feature.
+    The Reporter class supports the "identify" feature.
 
     It scans, indexes, and authenticates shares of a split secret without
-    actually decrypting it.
+    actually decrypting it, and prints a summary of what it found.
     """
 
     def __init__(self, decoder):

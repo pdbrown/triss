@@ -3,7 +3,7 @@
 
 from collections import defaultdict
 
-from triss.codec import Codec, Writer, Reader, Encoder, Decoder
+from triss.codec import Writer, Reader, Encoder, Decoder
 
 
 class MemoryStore(Writer, Reader):
@@ -49,4 +49,4 @@ class MemoryStore(Writer, Reader):
 
 def codec(**opts):
     store = MemoryStore()
-    return Codec(Encoder(store, **opts), Decoder(store, **opts))
+    return (Encoder(store, **opts), Decoder(store, **opts))

@@ -339,8 +339,8 @@ $(command -v python3 || command -v python) -m venv venv
 source venv/bin/activate
 ```
 
-Finally, enable development mode. This creates an "editable install" in the
-venv.
+Finally, enable development mode. This installs python dependencies and creates
+an "editable install" in the venv.
 
 ```bash
 make dev

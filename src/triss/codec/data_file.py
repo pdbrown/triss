@@ -31,11 +31,11 @@ class FileWriter(Writer):
 
     def write(self, share_id, header, payload=None):
         dest = self.file_path(share_id, header)
+        dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():
             mode = 'r+b'
         else:
             mode = 'wb'
-        dest.parent.mkdir(parents=True, exist_ok=True)
         with dest.open(mode=mode) as f:
             f.seek(0)
             f.write(header.to_bytes())
