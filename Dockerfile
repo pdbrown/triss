@@ -39,7 +39,7 @@ RUN <<EOF bash
     export PIP_NO_CACHE_DIR=1
 
     # User /venv-builder's pip to install into /venv
-    pip --python /venv/bin/python install 'triss[qrcode]' --find-links /build/dist
+    pip --python /venv/bin/python install triss --find-links /build/dist
 EOF
 
 

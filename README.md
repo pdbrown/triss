@@ -152,10 +152,6 @@ Then either install `triss` from [pypi](https://pypi.org/project/triss/)
 directly without verification:
 
 ```bash
-# Install triss with support for QRCODE output format:
-pip install 'triss[qrcode]'
-
-# or without it (QRCODE inputs to the `combine` command are supported either way)
 pip install triss
 ```
 
@@ -164,8 +160,6 @@ pip install triss
 Or download, verify, and install:
 ```bash
 # Download
-pip download 'triss[qrcode]'
-# or
 pip download triss
 
 # Import my gpg key
@@ -359,6 +353,9 @@ make dev
 ```
 
 ### Test
+After installing the package, either from local sources with `make dev` or
+`make dist`, or from upstream repos with `make upstream`, run tests with:
+
 ```bash
 make test
 make stress
@@ -367,14 +364,16 @@ make stress
 ### Build
 ```bash
 # Build dist package.
-make build
+make dist
 
 # Or build and sign it. The sign recipe invokes gpg and passes extra GPG_OPTS
-# you can set in the environment.
+# you can set on the commandline.
 make sign
+# or e.g.
+make sign GPG_OPTS='--default-key me@example.com'
 ```
 
-Note that `make build` and `make sign` disable development mode (by running `pip
+Note that `make dist` and `make sign` disable development mode (by running `pip
 install` in non-editable mode), so you'd need to re-run `make dev` to reenable
 it for subsequent development.
 
@@ -415,6 +414,20 @@ sudo systemd-nspawn --quiet --directory rootfs \
 find rootfs/app/shares
 ```
 
+### Publish
+Publish a dist package to PyPI with:
+```bash
+make publish
+
+# Or to the test instance at test.pypi.org:
+make publish PYPI=testpypi
+```
+
+And test it with:
+```
+make upstream
+make test
+```
 
 ## Implementation Details
 

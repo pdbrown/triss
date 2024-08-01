@@ -50,7 +50,7 @@ def ensure_pil():
             "Error: QRCODE output format requires the Python Image Library "
             "(PIL) as provided by the pillow dist package, but it is not "
             "available.\n"
-            "Try reinstalling triss:   pip install 'triss[qrcode]'\n"
+            "Try reinstalling triss:   pip install --upgrade triss\n"
             "or try installing pillow: pip install pillow")
 
 
