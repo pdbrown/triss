@@ -82,8 +82,8 @@ def authorized_share_sets(share_parent_dir, m):
 
 
 def assert_byte_streams_equal(bs_x, bs_y, err_msg="Byte streams not equal!"):
-    bs_x = resize_seqs(4096, bs_x)
-    bs_y = resize_seqs(4096, bs_y)
+    bs_x = resize_seqs(BUFFER_SIZE, bs_x)
+    bs_y = resize_seqs(BUFFER_SIZE, bs_y)
 
     for (xs, ys) in zip(bs_x, bs_y):
         if xs != ys:
