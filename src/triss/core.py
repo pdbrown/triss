@@ -123,6 +123,9 @@ def assert_all_authorized_sets_combine(in_file, out_dir, m, input_format):
 
 def do_split(in_file, out_dir, *, output_format=DEFAULT_FORMAT, m, n,
              secret_name="Split secret", skip_combine_check=False):
+    if Path(out_dir).exists():
+        raise RuntimeError(
+            f"Output directory {out_dir} exists already. Aborting.")
     if output_format == 'DATA':
         encoder = data_file.encoder(out_dir)
     elif output_format == 'QRCODE':
