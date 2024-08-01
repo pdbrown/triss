@@ -124,7 +124,7 @@ class Encoder:
         """
         Split secret into shares.
 
-        Take an iterator over SECRET_DATA_SEGMENTS (byte sequences), split them
+        Take an iterable of SECRET_DATA_SEGMENTS (byte sequences), split them
         into shares according to the AUTHORIZED_SETS determined by values of M
         and N which specify an M-of-N secret sharing scheme. See also
         triss.crypto.
@@ -151,11 +151,11 @@ class Encoder:
 
     def patch_headers(self, n_segments):
         """
-        Rewrite and MAC all fragment headers.
+        Rewrite and compute MACs of all fragment headers.
 
         Called after encode_segments. For each header:
-        - Set each its n_segments field now that it's known
-        - Rewrite it
+        - Set each its n_segments field now that it's known.
+        - Rewrite it.
         - Mix the header bytes into the MAC digest of the corresponding
           fragment.
         """
@@ -172,7 +172,7 @@ class Encoder:
 
     def aset_mac_byte_stream(self, aset_id, fragment_id, n_segments):
         """
-        Return generator that yields byte sequences of MAC data
+        Return a byte stream of MAC data (a generator that yields byte sequences)
 
         for all fragments of all segments of authorized set ASET_id, and
         includes the MAC key for fragment FRAGMENT_ID.
@@ -250,8 +250,8 @@ class AppendingEncoder(Encoder):
     output fragments to a single set of outputs. It produces one set of split,
     encrypted, output fragments for all elements of secret_data_segments
     provided to the encode(secret_data_segments, m, n) method. Each output data
-    fragment has the same length as the entire input. (Output MAC parts are of
-    fixed size).
+    fragment payload is the same length as the entire input. (Output MAC parts
+    are of fixed size).
     """
 
     def update_mac(self, aset_id, fragment_id, fragment):
@@ -298,16 +298,16 @@ class Reader():
 
     def input_streams(self):
         """
-        Return iterator over (handle, input_stream) pairs.
+        Return iterable over (handle, input_stream) pairs.
 
-        The input_stream is an iterator over byte sequences, and the handle is
+        The input_stream is an iterable of byte sequences, and the handle is
         an object that describes the source of the input_stream.
         """
         raise NotImplementedError()
 
     def payload_stream(self, tagged_input):
         """
-        Return iterator over byte sequences of payload of TAGGED_INPUT.
+        Return iterable of byte sequences for payload of TAGGED_INPUT.
 
         I.e. skip the header, then return rest of data. TAGGED_INPUT is a
         TaggedInput namedtuple, a pair of (header, handle).
@@ -369,26 +369,26 @@ class MacLoader:
                 f"with key of size {key_size} requested in header of {handle}:"
                 f" {header}") from e
 
-    def concat_mac_parts(self, mac_parts, aset_id, fragment_id):
-        # mac_parts is dict: {slice_id: part}
-        slice_count = len(mac_parts)
+    def concat_mac_slices(self, mac_slices, aset_id, fragment_id):
+        # mac_slices is dict: {slice_id: slice}
+        slice_count = len(mac_slices)
 
-        def get_part(slice_id):
+        def get_slice(slice_id):
             try:
-                return mac_parts[slice_id]
+                return mac_slices[slice_id]
             except KeyError as e:
                 raise ValueError(
                     f"Missing MAC slice {slice_id+1}/{slice_count} for fragment "
                     f"{fragment_id=} of authorized set {aset_id=}") from e
-        header0 = get_part(0).header
+        header0 = get_slice(0).header
         for slice_id in range(slice_count):
-            self.validate_mac_header(get_part(slice_id),
+            self.validate_mac_header(get_slice(slice_id),
                                      self.decoder.segment_count,
                                      header0.fragment_count,
                                      slice_count)
         payload = b''
         for slice_id in range(slice_count):
-            tagged_input = mac_parts[slice_id]
+            tagged_input = mac_slices[slice_id]
             for chunk in self.decoder.reader.payload_stream(tagged_input):
                 payload += chunk
         return (header0, payload)
@@ -402,13 +402,13 @@ class MacLoader:
           digests:  (segment_id, fragment_id) -> digest<bytes>
 
         DATA is obtained by concatenating payloads of Mac slices, each of which
-        has a header. HEADER is one of any Mac slice headers (any one of them
-        will do, only need Mac metadata which is replicated in each header).
-        DATA is a byte sequence, a Mac key followed by digests for all
-        fragments of all segments of an authorized set. The HEADER identifies
-        which fragment (thus which share) the key is for. The key is bundled
-        with digests for the fragment, and returned in OWN_MACS. All digests
-        (including those in OWN_MACS) are returned in DIGESTS.
+        has a header. HEADER is a Mac slice header (any one of them will do,
+        only need Mac metadata which is replicated in each header). DATA is a
+        byte sequence, a Mac key followed by digests for all fragments of all
+        segments of an authorized set. The HEADER identifies which fragment
+        (thus which share) the key is for. The key is bundled with digests for
+        the fragment, and returned in OWN_MACS. All digests (including those in
+        OWN_MACS) are returned in DIGESTS.
         """
         data = memoryview(data)
         key = data[0:header.key_size_bytes]
@@ -475,16 +475,16 @@ class MacLoader:
 
         # Index MACs for first available fragment
         try:
-            (fragment_id0, mac_parts0) = next(aset_macs)
+            (fragment_id0, mac_slices0) = next(aset_macs)
         except StopIteration:
             return mac_index
-        (header0, data0) = self.concat_mac_parts(mac_parts0, aset_id, fragment_id0)
+        (header0, data0) = self.concat_mac_slices(mac_slices0, aset_id, fragment_id0)
         (frag_macs0, digest_index0) = get_macs(header0, data0, aset_id, fragment_id0)
         index_macs(fragment_id0, frag_macs0)
 
         # Index MACs for remaining fragments
-        for fragment_id, mac_parts in aset_macs:
-            (header, data) = self.concat_mac_parts(mac_parts, aset_id, fragment_id)
+        for fragment_id, mac_slices in aset_macs:
+            (header, data) = self.concat_mac_slices(mac_slices, aset_id, fragment_id)
             (frag_macs, digest_index) = get_macs(header, data, aset_id, fragment_id)
             try:
                 self.validate_digests_consistent(
@@ -524,7 +524,7 @@ class MacLoader:
         try:
             mac_index = self.decoder.reference_macs[aset_id]
         except KeyError:
-            # Could build mac_index in except: block here, but nested errors
+            # Could build mac_index in except-block here, but nested errors
             # from build_mac_index become harder to understand.
             mac_index = None
         # So call build_mac_index at top level without a surrounding exception
@@ -841,6 +841,7 @@ class Reporter():
         """
         ok = True
         computed_macs = {}
+        segment = sorted(segment, key=lambda ti: ti.header.to_key())
         aset_ids = sorted({frag.header.aset_id for frag in segment})
         for aset_id in aset_ids:
             try:

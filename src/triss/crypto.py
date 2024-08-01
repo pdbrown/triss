@@ -36,7 +36,7 @@ def split_secret(secret_bytes, n):
 
     Given all N fragments, SECRET_BYTES can be reproduced with
     combine_fragments. Each fragment is a byte string of the same length as
-    SECRET_BYTES and posession of less than N fragments gives no information
+    SECRET_BYTES and possession of less than N fragments gives no information
     about SECRET_BYTES except its maximum length. This function operates like a
     stream cipher: with N=2, it yields a ciphertext and a keystream (of length
     equal to the ciphertext) as the 2 output fragments. With N>2, it XORs
@@ -210,9 +210,10 @@ def new_mac_key(algo=DEFAULT_ALGORITHM):
 
 def new_mac(key, algo=DEFAULT_ALGORITHM):
     """
-    Return new KeyedHmac of SIZE_BITS, the size in bits
+    Return new hmac object with KEY and ALGOrithm.
 
-    of both the secret key and the digest.
+    KEY is a byte sequence, at least 32 bytes long.
+    ALGO is an algorithm name as a string, starting with hmac- e.g. hmac-sha384.
     """
     if len(key) < digest_size_bytes(algo):
         raise ValueError(

@@ -78,10 +78,10 @@ def do_qrencode(data, path):
     #    highest: LMQH)
     # --8bit
     #    Use 8bit binary encoding, i.e. don't modify input in any way.
-    # --size 10
-    #    Make each element 5x5 pixels large (default is 3x3).
-    # --margin 10
-    #    Use 10 px margin (default is 4).
+    # --size 8
+    #    Make each element 8x8 pixels large (default is 3x3).
+    # --margin 6
+    #    Use 6 px margin (default is 4).
     # --symversion auto
     #    Automatically choose qrcode data density depending on amount of DATA.
     #    Versions range between 1-40, version 40 is largest/densest, and holds
@@ -154,8 +154,7 @@ def add_xy(pos, dxdy):
 
 
 def add_caption(img, title, subtitle="", detail=""):
-    # Resize images so text has constant size regardless of the qrcode IMG
-    # size.
+    # Size images so text has constant size regardless of the qrcode size.
     spacing = 6
     qr_v40_modules = 177
     # width of version 40 qr code
@@ -312,6 +311,10 @@ def qr_decode(path):
     m = re.search(r'scanned (\d+) barcode.*from (\d+) image',
                   proc.stderr.decode())
     # Want 1 qrcode per (1) image
+    if not m:
+        eprint_stderr(proc)
+        eprint(f"Failed to read QRCODEs in {path}.")
+        return bytes()
     if m.group(1) != '1' or m.group(2) != '1':
         eprint_stderr(proc)
         eprint(f"Got unexpected number of QRCODEs in {path}.")

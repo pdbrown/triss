@@ -2,8 +2,8 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 """
-Provide functions for manipulating "byte streams": iterables of byte sequence
-objects (bytes, bytearray, or list of bytes)
+The byte_streams module provides functions for manipulating "byte streams":
+iterables of byte sequence objects (bytes, bytearray, or list of bytes)
 """
 
 import itertools
@@ -68,6 +68,7 @@ def resize_seqs(chunk_size, byte_stream):
     The last byte sequence may have fewer bytes. The BYTE_STREAM input is an
     iterable of byte sequences.
     """
+    chunk_size = int(chunk_size)
     if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0")
 

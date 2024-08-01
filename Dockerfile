@@ -34,7 +34,7 @@ RUN <<EOF bash
     export VIRTUAL_ENV=/venv-builder
 
     # Configure pip
-    export PIP_DEFAULT_TIMEOUT=100
+    export PIP_TIMEOUT=90  # socket timeout in seconds, default is 15
     export PIP_DISABLE_PIP_VERSION_CHECK=1
     export PIP_NO_CACHE_DIR=1
 

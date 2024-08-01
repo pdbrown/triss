@@ -57,7 +57,8 @@ class FileWriter(Writer):
         n = self.part_numbers[share_id]
         # f-string: f"{3:05}" pads 3 with leading zeros to width 5: "00003"
         nf = f"{n:0{self.part_num_width}}"
-        return (n, f"share-{share_id}_part-{nf}_of_"
+        return (n,
+                f"share-{share_id}_part-{nf}_of_"
                 f"{self.n_parts_per_share}.dat")
 
     def post_process(self, header):

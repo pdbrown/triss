@@ -148,7 +148,7 @@ source venv/bin/activate
 
 #### Direct pip install
 
-Then either install `triss` from [pypi](https://pypi.org/project/triss/)
+Then either install `triss` from [PyPI](https://pypi.org/project/triss/)
 directly without verification:
 
 ```bash
@@ -165,7 +165,7 @@ pip download triss
 # Import my gpg key
 gpg --keyserver keyserver.ubuntu.com --recv-keys 219E9F62C560C55D2AFA44AEE970EC6EC2E57448
 
-# Download the SHA256SUMS and SHA256SUMS.asc
+# Download SHA256SUMS and SHA256SUMS.asc
 wget https://github.com/pdbrown/triss/releases/download/v1.0/SHA256SUMS
 wget https://github.com/pdbrown/triss/releases/download/v1.0/SHA256SUMS.asc
 
@@ -173,8 +173,13 @@ wget https://github.com/pdbrown/triss/releases/download/v1.0/SHA256SUMS.asc
 gpg --verify SHA256SUMS.asc
 sha256sum --check SHA256SUMS
 
-# Install
+# Install triss and its 3rd party dependency "pillow"
 pip install *.whl
+
+# Or, if you don't want to install pillow, you can install only the triss
+# package. Triss will still be able to split and combine DATA in format, and
+# combine from QRCODE inputs, but won't be able to produce new QRCODE outputs.
+pip install triss-*.whl
 ```
 
 
@@ -215,6 +220,20 @@ options:
                         is no guarantee the decoded output matches the original input.
 ```
 
+### Identify share parts
+Print details about shares of a split secret without actually combining them.
+Also verify the integrity of any share parts for which the MAC key is present.
+
+```
+triss identify [-h] [-c {DATA,QRCODE}] DIR [DIR ...]
+
+positional arguments:
+  DIR               one or more directories containing input files to identify
+
+options:
+  -h, --help        show this help message and exit
+  -c {DATA,QRCODE}  input file format, will guess if omitted
+```
 
 ### Examples
 
@@ -546,7 +565,7 @@ padding.
 
 ### Motivation
 
-There are already other tools that do secret sharing, so why build `triss`?
+There exist other tools that do secret sharing, so why build `triss`?
 
 - https://iancoleman.io/shamir/
 - https://github.com/jesseduffield/horcrux
@@ -649,7 +668,7 @@ share_2 = xor(plaintext, share_1)              # give to dishonest participant
 corruption = xor(b"attack", b"defend")
 share_2_corrupted = xor(share_2, corruption)
 
-# Attept recovery of secret
+# Attempt recovery of secret
 xor(share_1, share_2_corrupted)
 # => b"defend"
 ```
