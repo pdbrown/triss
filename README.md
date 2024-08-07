@@ -189,35 +189,33 @@ The dist package installs the `triss` wrapper script into the PATH of your venv.
 
 ### Split secret
 ```
-triss split [-h] [-m M] [-i IN_FILE] [-c {DATA,QRCODE}] [-t SECRET_NAME] [-k] N DIR
+triss split [-h] [-k] [-c {DATA,QRCODE}] [-t SECRET_NAME] [-i IN_FILE] [-m M] N OUT_DIR
 
 positional arguments:
   N                 number of shares
-  DIR               destination directory path
+  OUT_DIR           destination directory path
 
 options:
   -h, --help        show this help message and exit
-  -m M              number of required shares for M-of-N split
-  -i IN_FILE        path to input file, read from stdin if omitted
+  -k                skip combine check after splitting
   -c {DATA,QRCODE}  output file format, defaults to DATA
   -t SECRET_NAME    name of secret to include on QRCODE images
-  -k                skip combine check after splitting
+  -i IN_FILE        path to input file, read from stdin if omitted
+  -m M              number of required shares for M-of-N split, do N-of-N split if omitted
 ```
 
 ### Recover secret
 ```
-triss combine [-h] [-c {DATA,QRCODE}] [-o OUT_FILE] [--DANGER-allow-invalid] DIR [DIR ...]
+triss combine [-h] [--DANGER-invalid-ok] [-c {DATA,QRCODE}] [-o OUT_FILE] DIR [DIR ...]
 
 positional arguments:
-  DIR                   one or more directories containing input files to combine
+  DIR                  one or more directories containing input files to combine
 
 options:
-  -h, --help            show this help message and exit
-  -c {DATA,QRCODE}      input file format, will guess if omitted
-  -o OUT_FILE           write secret to output file, or stdout if omitted
-  --DANGER-allow-invalid
-                        Don't stop decoding on message authentication error. WARNING! There
-                        is no guarantee the decoded output matches the original input.
+  -h, --help           show this help message and exit
+  --DANGER-invalid-ok  don't stop decoding on message authentication error. WARNING! There is no guarantee the decoded output matches the original input.
+  -c {DATA,QRCODE}     input file format, will guess if omitted
+  -o OUT_FILE          write secret to output file, or stdout if omitted
 ```
 
 ### Identify share parts
