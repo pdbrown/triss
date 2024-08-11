@@ -20,10 +20,25 @@ from triss.util import eprint
 
 mimetypes.init()
 
-# QR_SIZE_MAX_BYTES is size of largest QR code with highest error correction
-# enabled: Version 40, ECC level "High"
+# QR_SIZE_MAX_BYTES is size of largest QR code to generate. QR codes should
+# hold as much data as feasible, but also be easy to scan. Their elements
+# should be large enough for zbarimg and zbarcam to decode reliably. Tried
+# Version 40 with ECC level "High" first, but zbarimg can't scan photos of
+# those at all. (It can scan the original PNG images, but the whole point is to
+# print them out and scan images of the printouts). Zbarcam can scan Version 40
+# at full letter page size, but only after a few tries. To accommodate a wider
+# range of camera and lighting conditions, settle on a smaller QR code, version
+# 30, with a lower error correction level, medium, level 2 of 4. Damaged QR
+# codes are less of a concern in this application, and version 30 on medium can
+# hold about the same payload as version 40 on high correction, but the QR
+# modules are larger and easier to scan. Note I could still not get zbarimg to
+# work with photos these, but zbarcam had an easier time picking them up.
 # See also https://www.qrcode.com/en/about/version.html
-QR_SIZE_MAX_BYTES = 1273
+QR_SIZE_MAX_BYTES = 1370
+QR_ECC_LEVEL = "M"
+# Number of modules along each dimension of QR code at the maximum size:
+# version 30
+QR_NUM_MODULES = 137
 QR_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - FragmentHeader.size_bytes()
 QR_MAC_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - MacHeader.size_bytes()
 QR_BOX_SIZE = 8
@@ -87,7 +102,7 @@ def do_qrencode(data, path):
     #    Versions range between 1-40, version 40 is largest/densest, and holds
     #    1273 bytes of data in High error correction mode.
     proc = subprocess.run(
-        ["qrencode", "-o", str(path), "--level", "H", "--8bit",
+        ["qrencode", "-o", str(path), "--level", QR_ECC_LEVEL, "--8bit",
          "--size", str(QR_BOX_SIZE), "--margin", str(QR_BORDER),
          "--symversion", "auto"],
         input=data,
@@ -156,9 +171,8 @@ def add_xy(pos, dxdy):
 def add_caption(img, title, subtitle="", detail=""):
     # Size images so text has constant size regardless of the qrcode size.
     spacing = 6
-    qr_v40_modules = 177
-    # width of version 40 qr code
-    w = (qr_v40_modules + 2 * QR_BORDER) * QR_BOX_SIZE
+    # width of version qr code
+    w = (QR_NUM_MODULES + 2 * QR_BORDER) * QR_BOX_SIZE
     title_font = find_font(6 * QR_BOX_SIZE)
     subtitle_font = find_font(4 * QR_BOX_SIZE)
     detail_font = find_font(2.5 * QR_BOX_SIZE)
@@ -326,7 +340,7 @@ class QRReader(FileReader):
 
     def __init__(self, in_dirs):
         super().__init__(in_dirs)
-        ensure_prog(['zbarimg', '--version'], "to decode QRCODEs")
+        ensure_prog(['zbarimg', '--version'], "to decode QRCODEs from images")
 
     def read_file(self, path, *, seek=0):
         data = qr_decode(path)
@@ -338,6 +352,35 @@ class QRReader(FileReader):
                 mime_type = mimetypes.types_map.get(path.suffix.lower())
                 if mime_type and re.split('/', mime_type)[0] == 'image':
                     yield path
+
+# TODO get input from zbarcam instead of zbarimg.
+
+# class QRVideoStreamer(Reader):
+
+#     def __init__(self):
+#         ensure_prog(['zbarcam', '--version'], "to decode QRCODEs from video")
+#         self.blobs = {}
+
+#     def read_file(self, path, *, seek=0):
+#         data = qr_decode(path)
+#         yield data[seek:]
+
+#     def find_files(self):
+#         for d in self.in_dirs:
+#             for path in Path(d).iterdir():
+#                 mime_type = mimetypes.types_map.get(path.suffix.lower())
+#                 if mime_type and re.split('/', mime_type)[0] == 'image':
+#                     yield path
+
+#     def input_streams(self):
+#         for f in self.find_files():
+#             yield (f, self.read_file(f))
+
+#     def payload_stream(self, tagged_input):
+#         return self.read_file(tagged_input.handle,
+#                               seek=tagged_input.header.size_bytes())
+
+
 
 
 def encoder(out_dir, secret_name, **opts):

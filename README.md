@@ -289,10 +289,7 @@ tree
 
 Shares of the secret are produced the same way as in DATA mode, then encoded as
 QR codes. This allows you to make paper copies, but can be slow and cumbersome
-for large inputs. Each QR code stores up to 1273 bytes, and is generated with
-error correction set to "High", so is scannable as long as at least 70% of the
-original image is available, but note that the finder pattern must be intact
-regardless.
+for large inputs. Each QR code stores up to 1370 bytes.
 
 ```bash
 # Make a 2-of-4 split in QRCODE mode
