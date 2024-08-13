@@ -16,7 +16,7 @@ except ModuleNotFoundError:
 from triss import byte_streams
 from triss.codec import Reader, Encoder, Decoder
 from triss.codec.data_file import FileWriter, FileReader
-from triss.header import FragmentHeader, MacHeader, Header
+from triss.header import FragmentHeader, MacHeader, Header, InvalidHeaderError
 from triss.util import eprint, print_exception
 
 mimetypes.init()
@@ -291,7 +291,7 @@ class QREncoder(Encoder):
 
 def qr_decode(path):
     """
-    Decode only QR code in image at path PATH, return byte array.
+    Decode QR codes in image at path PATH, return byte array.
     """
     # Invoke zbarimg with args:
     # -Senable=0 -Sqrcode.enable=1
@@ -304,10 +304,6 @@ def qr_decode(path):
     #    newline to the output.
     # -Sbinary
     #    Don't decode qrcode data, return unmodified bytes instead.
-    #
-    # NOTE there must only be 1 QR code in the image! While zbarimg will decode
-    # multiple QR codes, in binary mode it concatenates their payloads, so
-    # there's no easy way to tell where one payload ends and the next begins
     proc = subprocess.run(
         ['zbarimg', '-Senable=0', '-Sqrcode.enable=1',
          '--raw', '-Sbinary', path],
@@ -329,31 +325,52 @@ def qr_decode(path):
     if proc.returncode != 0:
         eprint_stderr(proc)
         raise RuntimeError(f"Failed to scan QRCODE in {path}.")
-    # Check stderr status message, looks like:
-    # scanned 1 barcode symbols from 1 images in 0 seconds
-    m = re.search(r'scanned (\d+) barcode.*from (\d+) image',
-                  proc.stderr.decode())
-    # Want 1 qrcode per (1) image
-    if not m:
-        eprint_stderr(proc)
-        eprint(f"Failed to read QRCODEs in {path}.")
-        return bytes()
-    if m.group(1) != '1' or m.group(2) != '1':
-        eprint_stderr(proc)
-        eprint(f"Got unexpected number of QRCODEs in {path}.")
-        return bytes()
     return proc.stdout
 
 
-class QRReader(FileReader):
+def parse_qr_data(stream, verbose=False):
+    """
+    Parse STREAM and yield tuples of (header, payload).
+
+    STREAM is an iterable of byte sequences.
+
+    TODO...
+    """
+    while True:
+        header, stream, errors = Header.parse(stream)
+        if errors:
+            if verbose:
+                for e in errors:
+                    if isinstance(e, InvalidHeaderError):
+                        print_exception(e)
+            # No valid header at beginning of stream, throw away first byte and
+            # try again.
+            try:
+                _garbage, stream = byte_streams.take_and_drop(1, stream)
+                continue
+            except StopIteration:
+                # Unless the stream is exhausted.
+                return
+
+        payload, stream = byte_streams.take_and_drop(
+            header.payload_size, stream)
+        yield (header, payload)
+
+
+class QRInput:
+    def __init__(self, path, data):
+        self.path = path
+        self.data = data
+
+    def __repr__(self):
+        return str(self.path)
+
+
+class QRReader(Reader):
 
     def __init__(self, in_dirs):
-        super().__init__(in_dirs)
+        self.in_dirs = list(in_dirs)
         ensure_prog(['zbarimg', '--version'], "to decode QRCODEs from images")
-
-    def read_file(self, path, *, seek=0):
-        data = qr_decode(path)
-        yield data[seek:]
 
     def find_files(self):
         for d in self.in_dirs:
@@ -361,6 +378,16 @@ class QRReader(FileReader):
                 mime_type = mimetypes.types_map.get(path.suffix.lower())
                 if mime_type and re.split('/', mime_type)[0] == 'image':
                     yield path
+
+    def input_streams(self):
+        for f in self.find_files():
+            data = qr_decode(f)
+            for header, payload in parse_qr_data([data]):
+                handle = QRInput(f, payload)
+                yield (handle, [header.to_bytes(), payload])
+
+    def payload_stream(self, tagged_input):
+        return [tagged_input.handle.data]
 
 
 def encoder(out_dir, secret_name, **opts):
@@ -371,7 +398,7 @@ def decoder(in_dirs, **opts):
     return Decoder(QRReader(in_dirs), name="QRDecoder", **opts)
 
 
-def qr_decode_video_stream():
+def qr_video_input():
     # Invoke zbarcam with args:
     # -Senable=0 -Sqrcode.enable=1
     #    Disable all decoders, then reenable only qrcode decoder
@@ -421,27 +448,6 @@ def qr_decode_video_stream():
             return
 
 
-def parse_qr_video_stream(stream):
-    while True:
-        header, stream, errors = Header.parse(stream)
-        if errors:
-            for e in errors:
-                if e.args and "version" in e.args[0]:
-                    print_exception(e)
-            # No valid header at beginning of stream, throw away first byte and
-            # try again.
-            try:
-                garbage, stream = byte_streams.take_and_drop(1, stream)
-                continue
-            except StopIteration:
-                # Unless the stream is exhausted.
-                return
-
-        payload, stream = byte_streams.take_and_drop(
-            header.payload_size, stream)
-        yield (header, payload)
-
-
 class QRScanner(Reader):
 
     def __init__(self):
@@ -457,7 +463,7 @@ class QRScanner(Reader):
         eprint("Scanning QR codes with default camera device.")
         eprint("Close the scanner window or send a keyboard interrupt "
                "(Ctrl-C) to continue once you're done scanning.")
-        for header, payload in parse_qr_video_stream(qr_decode_video_stream()):
+        for header, payload in parse_qr_data(qr_video_input()):
             handle = header.to_key()
             self.payloads[handle] = payload
             eprint("Scanned QR code with header: ", header)

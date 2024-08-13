@@ -78,3 +78,26 @@ def test_qr_encoder_decoder(tmp_path):
         shares = [tmp_path / f"share-{i}" for i in aset]
         decoder = qrcode.decoder(shares)
         assert list(decoder.decode()) == data_out
+
+
+@pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
+def test_qr_encoder_decoder_2up(tmp_path):
+    data = [b'asdf', b'qwer']
+    data_out = [b'asdfqwer']
+    n = 2
+    encoder = qrcode.encoder(tmp_path, "test secret")
+    encoder.encode(data, n, n)
+
+    shares = list(tmp_path.iterdir())
+    for share in shares:
+        imgs = []
+        for f in share.iterdir():
+            imgs.append(qrcode.load_image(f))
+            f.unlink()
+        combined = imgs[0]
+        for img in imgs[1:]:
+            combined = qrcode.merge_img_y(combined, img)
+        combined.save(share / "combined.png")
+
+    decoder = qrcode.decoder(shares)
+    assert list(decoder.decode()) == data_out

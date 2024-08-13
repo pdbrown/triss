@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from triss import byte_streams
 from triss import crypto
 
+class InvalidHeaderError(ValueError):
+    pass
 
 class Field:
     def __init__(self, name, size, default=None):
@@ -113,6 +115,16 @@ class Header:
     @classmethod
     def from_bytes(cls, data):
         """Parse byte array DATA and return instance of Header."""
+        # Error cases in order:
+        # - No data or not enough data
+        #   => ValueError
+        # - Not a header (header tag doesn't match)
+        #   => ValueError
+        # - Invalid checksum
+        #   => InvalidHeaderError
+        # - Wrong version
+        #   => InvalidHeaderError
+
         size = cls.size_bytes()
         if len(data) < size:
             raise ValueError(
@@ -121,24 +133,28 @@ class Header:
         data = data[0:size]
         checksum = bytes(data[-2:])  # last 2 bytes are checksum
         payload = bytes(data[0:-2])  # first n-2 bytes are payload
-        if crypto.fletchers_checksum_16(payload) != checksum:
-            raise ValueError(
-                f"{cls.__name__}: Refusing to parse header with bad checksum.")
+
         info = {}
-        i = 0
+        p = 0
         for k, field in cls.__fields__.items():
-            info[k] = field.parse(payload[i:i+field.size])
-            i += field.size
+            info[k] = field.parse(payload[p:p+field.size])
+            p += field.size
+
         tag = cls.__fields__['tag'].default
         if info['tag'] != tag:
             raise ValueError(
-                f"{cls.__name__}: Header tag is not {tag.decode('utf-8')}: is "
-                "this a triss file?")
+                f"{cls.__name__}: Invalid header tag, is this a triss file?")
+
+        if crypto.fletchers_checksum_16(payload) != checksum:
+            raise InvalidHeaderError(
+                f"{cls.__name__}: Invalid header checksum.")
+
         version = cls.__fields__['version'].default
         if info['version'] != version:
-            raise ValueError(
+            raise InvalidHeaderError(
                 f"{cls.__name__}: Incompatible header version, got "
                 f"{info['version']} but expected {version}")
+
         return cls(**info)
 
     @staticmethod

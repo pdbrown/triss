@@ -1,9 +1,13 @@
 ## 2.0a1
 
-- **Breaking change**: Bump MacHeader version from 1 to 2.
+### BREAKING Changes
+- Bump MacHeader version from 1 to 2 and drop support for version 1.
   - Add `payload_size`, 4 byte int field.
   - Shrink `algroithm` field from 24 -> 20 bytes.
+
+### Changes
 - Add webcam QR code scanner powered by `zbarcam`.
+- Support multiple QR codes per input image.
 
 ## 1.1
 

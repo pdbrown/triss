@@ -775,8 +775,8 @@ class Decoder:
                                                      len(authorized_set))
         except Exception as e:
             mac_error(
-                f"Failed to load MACs while decoding segment {segment_id=} "
-                f"with authorized set {aset_id=}",
+                f"Failed to load MACs while decoding {segment_id=} with "
+                f"authorized set {aset_id=}",
                 cause=e)
             reference_macs = {}
 
@@ -861,8 +861,8 @@ class Reporter():
                     for (fragment_id, reference_mac)
                     in aset_segment_macs.items()}
             except Exception as e:
-                print("Failed to load MACs while decoding segment "
-                      f"{segment_id=} with authorized set {aset_id=}")
+                print(f"Failed to load MACs while decoding {segment_id=} "
+                      f"with authorized set {aset_id=}")
                 print_exception(e, file=sys.stdout)
                 ok = False
         expected_sizes = [tf.header.payload_size for tf in segment]
