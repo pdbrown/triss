@@ -13,9 +13,10 @@ def take_and_drop(n, byte_stream):
     """
     Remove up to first N bytes from BYTE_STREAM.
 
-    Raise StopIteration if BYTE_STREAM is empty.
-
     BYTE_STREAM is an iterable of byte sequences.
+    Raise StopIteration if BYTE_STREAM is empty: if it contains no byte
+    sequences, or all of them are empty.
+
     Return a tuple (head, byte_stream):
     - head is a byte string of the first N bytes
     - byte_stream is an iterator over the remaining byte sequences
@@ -40,8 +41,9 @@ def take_and_drop(n, byte_stream):
         acc.append(chunk)
         acc_size += len(chunk)
 
-    if len(acc) == 0:
-        # Then input was empty, signal StopIteration
+    if acc_size == 0:
+        # Then input was empty or consisted entirely of empty byte strings,
+        # signal StopIteration
         raise StopIteration
 
     head = b''

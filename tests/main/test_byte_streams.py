@@ -27,6 +27,22 @@ def test_take_and_drop():
     with pytest.raises(StopIteration):
         take_and_drop(1, bs)
 
+    head, bs = take_and_drop(1, [b'', b'x'])
+    assert head == b'x'
+    head, bs = take_and_drop(0, bs)
+    assert head == b''
+    with pytest.raises(StopIteration):
+        take_and_drop(1, bs)
+
+    with pytest.raises(StopIteration):
+       take_and_drop(1, [])
+
+    with pytest.raises(StopIteration):
+        take_and_drop(1, [b''])
+
+    with pytest.raises(StopIteration):
+        take_and_drop(1, [b'', b''])
+
 
 def test_resize_seqs():
     assert list(resize_seqs(1024, [])) == []
