@@ -8,6 +8,8 @@
 ### Changes
 - Add webcam QR code scanner powered by `zbarcam`.
 - Support multiple QR codes per input image.
+- Accept input from QR code image files and `zbarcam` video feed at the same
+  time.
 
 ## 1.1
 

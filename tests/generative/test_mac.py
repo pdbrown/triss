@@ -47,7 +47,7 @@ def corrupt_header(shares):
     part = random.choice(list(share.iterdir()))
     with part.open('rb+') as f:
         data = f.read()
-        (header, _, _) = Header.parse([data])
+        header, _ = Header.parse([data])
         fields = [v
                   for v
                   in header.__fields__.values()

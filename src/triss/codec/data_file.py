@@ -6,8 +6,11 @@ import math
 import os
 from pathlib import Path
 
-from triss.codec import Writer, Appender, Reader, AppendingEncoder, Decoder
-
+from triss.codec import Writer, Appender, Reader, AppendingEncoder, Decoder, \
+    TaggedInput
+from triss import header
+from triss.header import Header
+from triss.util import eprint, print_exception
 
 def header_name(header):
     def to_str(x):
@@ -105,9 +108,18 @@ class FileReader(Reader):
                 if path.suffix == suffix:
                     yield path
 
-    def input_streams(self):
+    def locate_inputs(self):
         for f in self.find_files():
-            yield (f, self.read_file(f))
+            try:
+                header, _ = Header.parse(self.read_file(f))
+                yield TaggedInput(header, f)
+            except StopIteration:
+                eprint(f"{type(self).__name__}: Unable to parse header in {f}:"
+                       " file is empty, skipping it.")
+            except Exception as e:
+                eprint(f"{type(self).__name__}: Unable to parse header in {f},"
+                       " skipping it. Parsing failed with:")
+                print_exception(e)
 
     def payload_stream(self, tagged_input):
         return self.read_file(tagged_input.handle,
@@ -120,4 +132,4 @@ def encoder(out_dir, **opts):
 
 def decoder(in_dirs, *, file_extension="dat", **opts):
     reader = FileReader(in_dirs, file_extension=file_extension)
-    return Decoder(reader, name="FileDecoder", **opts)
+    return Decoder(reader, **opts)

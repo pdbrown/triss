@@ -7,8 +7,17 @@ from types import SimpleNamespace
 from triss import byte_streams
 from triss import crypto
 
+
 class InvalidHeaderError(ValueError):
     pass
+
+
+class HeaderParseError(ExceptionGroup):
+    def __new__(cls, msg, excs, byte_stream):
+        self = super().__new__(HeaderParseError, msg, excs)
+        self.byte_stream = byte_stream
+        return self
+
 
 class Field:
     def __init__(self, name, size, default=None):
@@ -137,13 +146,19 @@ class Header:
         info = {}
         p = 0
         for k, field in cls.__fields__.items():
-            info[k] = field.parse(payload[p:p+field.size])
-            p += field.size
+            try:
+                info[k] = field.parse(payload[p:p+field.size])
+                p += field.size
+            except Exception as e:
+                raise ValueError(
+                    f"{cls.__name__}: Failed to parse header field "
+                    f"'{field.name}' at bytes [{p}:{p+field.size}] of input."
+                ) from e
 
         tag = cls.__fields__['tag'].default
         if info['tag'] != tag:
             raise ValueError(
-                f"{cls.__name__}: Invalid header tag, is this a triss file?")
+                f"{cls.__name__}: Incorrect header tag for {cls.__name__}")
 
         if crypto.fletchers_checksum_16(payload) != checksum:
             raise InvalidHeaderError(
@@ -162,6 +177,9 @@ class Header:
         """
         Parse a Header from BYTE_STREAM, an iterable of byte sequences.
 
+        Raise StopIteration if BYTE_STREAM is empty.
+
+        TODO
         Return tuple of (header, byte_stream, errors). HEADER is a header
         parsed from the beginning of the byte_stream or None if an error
         occurred. BYTE_STREAM is the remainder of the input. If ERRORS is set,
@@ -170,26 +188,16 @@ class Header:
         errors = []
         byte_stream = iter(byte_stream)
         for header_cls in Header.__subclasses__():
+            chunk, byte_stream = byte_streams.take_and_drop(
+                header_cls.size_bytes(), byte_stream)
             try:
-                chunk, byte_stream = byte_streams.take_and_drop(
-                    header_cls.size_bytes(), byte_stream)
-            except StopIteration as e:
-                ve = ValueError("No data available.")
-                ve.__cause__ = e
-                errors.append(ve)
-                return (None, byte_stream, errors)
-            if not chunk:
-                e = ValueError("No data available.")
-                errors.append(e)
-                return (None, byte_stream, errors)
-
-            try:
-                return (header_cls.from_bytes(chunk), byte_stream, None)
-            except ValueError as e:
+                return (header_cls.from_bytes(chunk), byte_stream)
+            except Exception as e:
                 errors.append(e)
                 # Push chunk back onto byte stream and try again
                 byte_stream = itertools.chain([chunk], byte_stream)
-        return (None, byte_stream, errors)
+        raise HeaderParseError(
+            "Failed to parse Header.", errors, byte_stream)
 
 
 FRAGMENT_HEADER_VERSION = 1

@@ -54,26 +54,28 @@ def cli():
     m.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
                    help="input file format, will guess if omitted")
     m.add_argument('-s', required=False, action='store_true',
-                   help="scan QR codes using default video camera device.")
+                   help="scan QR codes using default video camera device. "
+                   "Implies '-c QRCODE'.")
     m.add_argument('-o', type=str, required=False,
                    metavar='OUT_FILE',
                    help="write secret to output file, or stdout if omitted")
 
     m = sp.add_parser('identify',
                       help="Describe a share and check its integrity.")
-    m.add_argument('in_dirs', type=str, nargs='+',
+    m.add_argument('in_dirs', type=str, nargs='*',
                    metavar='DIR',
-                   help="one or more directories containing input files to "
+                   help="zero or more directories containing input files to "
                    "identify")
     m.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
                    help="input file format, will guess if omitted")
+    m.add_argument('-s', required=False, action='store_true',
+                   help="scan QR codes using default video camera device. "
+                   "Implies '-c QRCODE'.")
 
     args = parser.parse_args()
     core.python_version_check()
     if args.c:
         fmt = args.c
-    elif args.s:
-        fmt = 'QRCODE_SCANNER'
     else:
         fmt = 'GUESS'
     if args.verbose:
@@ -82,16 +84,20 @@ def cli():
         core.do_split(args.i, args.out_dir, output_format=fmt,
                       m=args.m, n=args.n,
                       secret_name=args.t, skip_combine_check=args.k)
-    elif args.command == 'combine':
-        if not args.in_dirs and fmt != 'QRCODE_SCANNER':
+        return
+    if args.s:
+        fmt = 'QRCODE'
+    if args.command == 'combine':
+        if not args.in_dirs and not args.s:
             raise RuntimeError(
                 "Error: Must specify either an input directory or enable "
-                "QR code scanning with the '-s' flag.")
+                "QR code scanner with the '-s' flag, or both.")
         core.do_combine(args.in_dirs, args.o,
                         input_format=fmt,
+                        scan_qr=args.s,
                         ignore_mac_error=args.DANGER_invalid_ok)
     elif args.command == 'identify':
-        core.do_identify(args.in_dirs, fmt)
+        core.do_identify(args.in_dirs, fmt, scan_qr=args.s)
     else:
         raise ValueError(f"Invalid command: {args.command}")
 

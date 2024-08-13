@@ -25,7 +25,7 @@ def test_fragment_header():
 
     h_bytes = h.to_bytes()
 
-    (parsed, byte_stream, errors) = Header.parse([h_bytes])
+    parsed, byte_stream = Header.parse([h_bytes])
     with pytest.raises(StopIteration):
         next(byte_stream)
     assert parsed.aset_id == h.aset_id

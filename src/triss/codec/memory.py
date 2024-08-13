@@ -3,8 +3,8 @@
 
 from collections import defaultdict
 
-from triss.codec import Writer, Reader, Encoder, Decoder
-
+from triss.codec import Writer, Reader, Encoder, Decoder, TaggedInput
+from triss.header import Header
 
 class MemoryStore(Writer, Reader):
     """
@@ -33,13 +33,14 @@ class MemoryStore(Writer, Reader):
     def select_authorized_set(self, share_ids):
         self.decoder_share_ids = share_ids
 
-    def input_streams(self):
+    def locate_inputs(self):
         if self.decoder_share_ids is None:
             raise Exception("Call select_authorized_set first")
         for share_id in self.decoder_share_ids:
             for k in self.shares[share_id]:
-                data = self.parts[k]
-                yield (k, data)
+                (header_bytes, _) = self.parts[k]
+                header, _ = Header.parse([header_bytes])
+                yield TaggedInput(header, k)
 
     def payload_stream(self, tagged_input):
         _, k = tagged_input

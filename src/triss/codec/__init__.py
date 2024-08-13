@@ -297,9 +297,9 @@ class Reader():
     A Decoder uses a Reader to find and consume input.
     """
 
-    def input_streams(self):
+    def locate_inputs(self):
         """
-        Return iterable over (handle, input_stream) pairs.
+        Yield a sequence of TaggedInput(header, handle) namedtuples.
 
         The input_stream is an iterable of byte sequences, and the handle is
         an object that describes the source of the input_stream.
@@ -308,10 +308,11 @@ class Reader():
 
     def payload_stream(self, tagged_input):
         """
-        Return iterable of byte sequences for payload of TAGGED_INPUT.
+        Return byte stream for payload of TAGGED_INPUT.
 
-        I.e. skip the header, then return rest of data. TAGGED_INPUT is a
-        TaggedInput namedtuple, a pair of (header, handle).
+        I.e. skip the header, then return rest of data as an iterable of byte
+        sequences. TAGGED_INPUT is a TaggedInput namedtuple, a pair of (header,
+        handle) produced by self.locate_inputs().
         """
         raise NotImplementedError()
 
@@ -556,7 +557,10 @@ class Decoder:
     of the secret shares.
     """
 
-    def __init__(self, reader, *, name=None, fragment_read_size=(4096*16)):
+    def __init__(self, reader, *,
+                 name=None,
+                 fragment_read_size=(4096*16),
+                 **_opts):
         self.reader = reader
         self.fragment_read_size = fragment_read_size
         self.name = name or type(self).__name__
@@ -589,7 +593,8 @@ class Decoder:
         else:
             pr("No MACs discovered.")
 
-    def ensure_segment_count(self, header, handle):
+    def ensure_segment_count(self, tagged_input):
+        header, handle = tagged_input
         if not hasattr(self, 'segment_count'):
             if header.segment_count == 0:
                 raise ValueError(
@@ -598,15 +603,15 @@ class Decoder:
         validate_header_attr((header, handle), 'segment_count',
                              self.segment_count)
 
-    def register_header(self, header, handle):
+    def register_input(self, tagged_input):
+        header, handle = tagged_input
         if isinstance(header, FragmentHeader):
-            self.frags_by_segment[header.segment_id].append(
-                TaggedInput(header, handle))
-            self.ensure_segment_count(header, handle)
+            self.frags_by_segment[header.segment_id].append(tagged_input)
+            self.ensure_segment_count(tagged_input)
         elif isinstance(header, MacHeader):
             aset_macs = self.mac_parts[header.aset_id]
             fragment_macs = aset_macs[header.fragment_id]
-            fragment_macs[header.slice_id] = TaggedInput(header, handle)
+            fragment_macs[header.slice_id] = tagged_input
         else:
             raise ValueError(
                 f"Unknown header type {type(header).__name__}.")
@@ -632,18 +637,13 @@ class Decoder:
         self.mac_loader = MacLoader(self)
 
         # Register all inputs from all available shares.
-        for handle, input_stream in self.reader.input_streams():
-            header, input_stream, errors = Header.parse(input_stream)
-            if errors:
-                print_exception(ExceptionGroup(
-                    f"Unable to parse header in {handle}, skipping it."
-                    " Parsing failed with:", errors))
-                continue
+        for tagged_input in self.reader.locate_inputs():
             try:
-                self.register_header(header, handle)
+                self.register_input(tagged_input)
             except Exception as e:
-                self.eprint(f"Unable to register header in {handle}, skipping it."
-                            " Failed with:")
+                self.eprint(
+                    f"Unable to register header in {tagged_input.handle}, "
+                    "skipping it. Failed with:")
                 print_exception(e)
                 continue
         if not self.frags_by_segment or not hasattr(self, 'segment_count'):

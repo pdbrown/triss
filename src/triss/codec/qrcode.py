@@ -14,9 +14,9 @@ except ModuleNotFoundError:
     HAVE_PIL = False
 
 from triss import byte_streams
-from triss.codec import Reader, Encoder, Decoder
+from triss.codec import Reader, Encoder, Decoder, TaggedInput
 from triss.codec.data_file import FileWriter, FileReader
-from triss.header import FragmentHeader, MacHeader, Header, InvalidHeaderError
+from triss.header import FragmentHeader, MacHeader, Header, InvalidHeaderError, HeaderParseError
 from triss.util import eprint, print_exception
 
 mimetypes.init()
@@ -59,12 +59,14 @@ TRY_FONTS = ["Helvetica.ttf", "DejaVuSans.ttf", "Arial.ttf"]
 def eprint_stdout_stderr(proc):
     if proc.stdout:
         eprint(proc.stdout.decode('utf-8').strip())
-    eprint_stderr(proc)
-
-
-def eprint_stderr(proc):
     if proc.stderr:
         eprint(proc.stderr.decode('utf-8').strip())
+
+def proc_stderr(proc):
+    if proc.stderr:
+        return proc.stderr.decode('utf-8').strip()
+    else:
+        return ""
 
 
 def ensure_pil():
@@ -309,51 +311,57 @@ def qr_decode(path):
          '--raw', '-Sbinary', path],
         capture_output=True)
     if proc.returncode == 4:
-        eprint(f"No QRCODE detected in {path}.")
-        return bytes()
+        raise ValueError("No QRCODE detected.")
     if proc.returncode < 0:
         # Then terminated by signal
-        eprint(f"zbarimg terminated by signal {proc.returncode} while "
-               f"attempting to read QRCODE in {path}.")
-        return bytes()
+        raise RuntimeError(
+            f"zbarimg terminated by signal {proc.returncode} while "
+            f"attempting to read QRCODE.")
     imagemagick_error = proc.returncode == 2
     bad_file_format = (proc.returncode == 1 and
                        re.search(r'no decode delegate', proc.stderr.decode()))
     if imagemagick_error or bad_file_format:
-        eprint(f"Unable to read file as QRCODE image: {path}.")
-        return bytes()
+        raise RuntimeError("Unable to read file as QRCODE image.")
     if proc.returncode != 0:
-        eprint_stderr(proc)
-        raise RuntimeError(f"Failed to scan QRCODE in {path}.")
+        raise RuntimeError("Failed to scan QRCODE: " + proc_stderr(proc))
     return proc.stdout
 
 
-def parse_qr_data(stream, verbose=False):
+def parse_qr_data(stream):
     """
-    Parse STREAM and yield tuples of (header, payload).
+    Parse STREAM and yield tuples of (header, payload) or yield an error,
 
+    a HeaderParseError exception object, if parsing fails.
     STREAM is an iterable of byte sequences.
-
-    TODO...
     """
     while True:
-        header, stream, errors = Header.parse(stream)
-        if errors:
-            if verbose:
-                for e in errors:
-                    if isinstance(e, InvalidHeaderError):
-                        print_exception(e)
+        error = None
+        try:
+            header, stream = Header.parse(stream)
+        except StopIteration:
+            return
+        except HeaderParseError as hpe:
+            header = None
+            stream = hpe.byte_stream
+            yield hpe
+
+        if header is None:
             # No valid header at beginning of stream, throw away first byte and
             # try again.
             try:
                 _garbage, stream = byte_streams.take_and_drop(1, stream)
                 continue
             except StopIteration:
-                # Unless the stream is exhausted.
                 return
 
-        payload, stream = byte_streams.take_and_drop(
-            header.payload_size, stream)
+        try:
+            payload, stream = byte_streams.take_and_drop(
+                header.payload_size, stream)
+        except StopIteration as e:
+            raise ValueError(
+                f"Expected a QR data payload of {header.payload_size} bytes, "
+                f"but got fewer for input with header {header}"
+            ) from e
         yield (header, payload)
 
 
@@ -366,7 +374,12 @@ class QRInput:
         return str(self.path)
 
 
-class QRReader(Reader):
+class QRReaderBase(Reader):
+    def payload_stream(self, tagged_input):
+        return [tagged_input.handle.data]
+
+
+class QRReader(QRReaderBase):
 
     def __init__(self, in_dirs):
         self.in_dirs = list(in_dirs)
@@ -379,23 +392,33 @@ class QRReader(Reader):
                 if mime_type and re.split('/', mime_type)[0] == 'image':
                     yield path
 
-    def input_streams(self):
+    def locate_inputs(self):
         for f in self.find_files():
-            data = qr_decode(f)
-            for header, payload in parse_qr_data([data]):
-                handle = QRInput(f, payload)
-                yield (handle, [header.to_bytes(), payload])
+            try:
+                data = qr_decode(f)
+            except Exception as e:
+                eprint(f"{type(self).__name__}: Unable to decoede QR data "
+                       f"from {f}, skipping it. Failed with:")
+                print_exception(e)
+                continue
 
-    def payload_stream(self, tagged_input):
-        return [tagged_input.handle.data]
-
-
-def encoder(out_dir, secret_name, **opts):
-    return QREncoder(out_dir, secret_name, **opts)
-
-
-def decoder(in_dirs, **opts):
-    return Decoder(QRReader(in_dirs), name="QRDecoder", **opts)
+            error = None
+            try:
+                for result in parse_qr_data([data]):
+                    if isinstance(result, Exception):
+                        if not error:
+                            error = result
+                    else:
+                        header, payload = result
+                        handle = QRInput(f, payload)
+                        yield TaggedInput(header, handle)
+            except Exception as e:
+                if not error:
+                    error = e
+            if error:
+                eprint(f"{type(self).__name__}: Caught error reading QR "
+                       f"data from {f}:")
+                print_exception(error)
 
 
 def qr_video_input():
@@ -448,34 +471,57 @@ def qr_video_input():
             return
 
 
-class QRScanner(Reader):
+class QRScanner(QRReaderBase):
 
     def __init__(self):
         ensure_prog(['zbarcam', '--version'], "to scan QRCODEs from video")
-        self.payloads = {}
 
-    def eprint(self, *args):
-        eprint(f"{type(self).__name__}:", *args)
-
-    def input_streams(self):
-        if self.payloads:
-            raise RuntimeError("Tried to call input_streams() more than once.")
+    def locate_inputs(self):
         eprint("Scanning QR codes with default camera device.")
         eprint("Close the scanner window or send a keyboard interrupt "
                "(Ctrl-C) to continue once you're done scanning.")
-        for header, payload in parse_qr_data(qr_video_input()):
-            handle = header.to_key()
-            self.payloads[handle] = payload
-            eprint("Scanned QR code with header: ", header)
-            yield (handle, [header.to_bytes(), payload])
-
-    def payload_stream(self, tagged_input):
         try:
-            return [self.payloads[tagged_input.handle]]
-        except KeyError as e:
-            raise ValueError("No input available for header with key "
-                             f"{handle}: {header}") from e
+            for result in parse_qr_data(qr_video_input()):
+                if isinstance(result, ExceptionGroup):
+                    ihes = [e for e in result.exceptions
+                            if isinstance(e, InvalidHeaderError)]
+                    if ihes:
+                        eprint(f"{type(self).__name__}: Unable to parse header of "
+                               f"QR data in video stream, skipping it. "
+                               "Parsing failed with:")
+                    for e in ihes:
+                        print_exception(e, prefix="  ")
+                else:
+                    header, payload = result
+                    handle = QRInput("QRScanner camera input", payload)
+                    eprint(f"Scanned QR code: {header}")
+                    yield TaggedInput(header, handle)
+        except Exception as e:
+            eprint(f"{type(self).__name__}: Caught error reading QR "
+                   f"data from default camera video stream:")
+            print_exception(e)
 
 
-def scanner(*unused, **opts):
-    return Decoder(QRScanner(), name="QRScannerDecoder", **opts)
+class QRReaderScanner(QRReaderBase):
+    def __init__(self, reader):
+        self.reader = reader
+        self.scanner = QRScanner()
+
+    def locate_inputs(self):
+        yield from self.reader.locate_inputs()
+        yield from self.scanner.locate_inputs()
+
+
+def encoder(out_dir, secret_name, **opts):
+    return QREncoder(out_dir, secret_name, **opts)
+
+
+def decoder(in_dirs, **opts):
+    if in_dirs:
+        reader = QRReader(in_dirs)
+        if opts.get('scanner', False):
+            reader = QRReaderScanner(reader)
+    else:
+        reader = QRScanner()
+    del opts["scanner"]
+    return Decoder(reader, **opts)

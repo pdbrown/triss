@@ -37,10 +37,10 @@ def python_version_check():
 
 DEFAULT_FORMAT = 'DATA'
 DECODERS = {
-    'DATA': [data_file.decoder],
-    'QRCODE': [qrcode.decoder],
-    'QRCODE_SCANNER': [qrcode.scanner],
-    'GUESS': [data_file.decoder, qrcode.decoder]
+    'DATA': [("FileDecoder", data_file.decoder)],
+    'QRCODE': [("QRDecoder", qrcode.decoder)],
+    'GUESS': [("FileDecoder", data_file.decoder),
+              ("QRDecoder", qrcode.decoder)]
 }
 
 
@@ -161,18 +161,12 @@ def do_split(in_file, out_dir, *, output_format=DEFAULT_FORMAT, m, n,
             f"Failed to split secret in {output_format} format.") from e
 
 
-def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
+def try_decode(decoder, out_file, ignore_mac_error):
     """
     Try to decode. Return False on error, or tuple of (True, print_errors)
 
     where print_errors is a boolean.
     """
-    try:
-        decoder = decoder_cls(dirs)
-    except Exception as e:
-        eprint(f"Failed to initialize decoder {decoder_cls.__name__}:")
-        print_exception(e)
-        return False
     try:
         decoder.eprint("Try decoding...")
         output_chunks = decoder.decode(ignore_mac_error)
@@ -207,11 +201,11 @@ def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
 def do_combine(dirs,
                out_file,
                input_format='GUESS',
-               scan_qrcodes=False,
+               scan_qr=False,
                ignore_mac_error=False):
     decoders = DECODERS[input_format]
     print_errors = True
-    if verbose() or input_format == 'QRCODE_SCANNER':
+    if verbose() or scan_qr:
         # Don't interfere with stderr
         cm = contextlib.nullcontext(None)
     else:
@@ -221,10 +215,18 @@ def do_combine(dirs,
     try:
         with cm as captured_err:
             loop_msg = ""
-            for decoder_cls in decoders:
+            for name, decoder_fn in decoders:
                 if loop_msg:
                     eprint(loop_msg)
-                ret = try_decode(decoder_cls, dirs, out_file, ignore_mac_error)
+                try:
+                    decoder = decoder_fn(dirs, name=name, scanner=scan_qr)
+                except Exception as e:
+                    eprint(f"Failed to initialize {name}:")
+                    print_exception(e)
+                    loop_msg = "Trying next decoder."
+                    continue
+
+                ret = try_decode(decoder, out_file, ignore_mac_error)
                 if ret:
                     _, print_errors = ret
                     if hasattr(os, 'sync'):
@@ -243,27 +245,35 @@ def do_combine(dirs,
     raise RuntimeError(err)
 
 
-def try_identify(decoder_cls, dirs):
-    try:
-        decoder = decoder_cls(dirs)
-    except Exception as e:
-        print(f"Failed to initialize decoder {decoder_cls.__name__}:")
-        print_exception(e, file=sys.stdout)
-        return False
+def try_identify(decoder):
     reporter = Reporter(decoder)
     try:
         if reporter.identify():
             return True
     except Exception as e:
         print(f"{decoder.name}: And failed to identify with:")
-        print_exception(e, file=sys.stdout)
+        print_exception(e)
     return False
 
 
-def do_identify(dirs, input_format='GUESS'):
+def do_identify(dirs, input_format='GUESS', scan_qr=False):
     decoders = DECODERS[input_format]
-    for decoder_cls in decoders:
-        if try_identify(decoder_cls, dirs):
+    loop_msg = ""
+    for name, decoder_fn in decoders:
+        if loop_msg:
+            eprint(loop_msg)
+        try:
+            decoder = decoder_fn(dirs, name=name, scanner=scan_qr)
+        except Exception as e:
+            eprint(f"Failed to initialize {name}:")
+            print_exception(e)
+            loop_msg = "Trying next decoder."
+            continue
+        if try_identify(decoder):
             return True
-        print("Trying next decoder.")
-    raise RuntimeError(f"Unable to identify all data in {iter_str(dirs)}.")
+        loop_msg = "Trying next decoder."
+
+    err = "Unable to identify all data"
+    if dirs:
+        err += f" in {iter_str(dirs)}"
+    raise RuntimeError(err)
