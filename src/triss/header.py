@@ -146,32 +146,42 @@ class Header:
         """
         Parse a Header from BYTE_STREAM, an iterable of byte sequences.
 
-        Return tuple of header and rest of BYTE_STREAM.
+        Return tuple of (header, byte_stream, errors). HEADER is a header
+        parsed from the beginning of the byte_stream or None if an error
+        occurred. BYTE_STREAM is the remainder of the input. If ERRORS is set,
+        its a list of exceptions caught while trying to parse the byte_stream.
         """
-        exceptions = []
+        errors = []
         byte_stream = iter(byte_stream)
         for header_cls in Header.__subclasses__():
             try:
                 chunk, byte_stream = byte_streams.take_and_drop(
                     header_cls.size_bytes(), byte_stream)
             except StopIteration as e:
-                raise ValueError("No data available.") from e
+                ve = ValueError("No data available.")
+                ve.__cause__ = e
+                errors.append(ve)
+                return (None, byte_stream, errors)
             if not chunk:
-                raise ValueError("No data available.")
+                e = ValueError("No data available.")
+                errors.append(e)
+                return (None, byte_stream, errors)
+
             try:
-                return (header_cls.from_bytes(chunk), byte_stream)
+                return (header_cls.from_bytes(chunk), byte_stream, None)
             except ValueError as e:
-                exceptions.append(e)
+                errors.append(e)
                 # Push chunk back onto byte stream and try again
                 byte_stream = itertools.chain([chunk], byte_stream)
-        raise ExceptionGroup("Data doesn't match any Header format.",
-                             exceptions)
+        return (None, byte_stream, errors)
 
+
+FRAGMENT_HEADER_VERSION = 1
 
 class FragmentHeader(Header):
     __fields__ = fields_by_name(
         BytesField("tag", 9, b'trissfrag'),
-        IntField("version", 1, 1),
+        IntField("version", 1, FRAGMENT_HEADER_VERSION),
         IntField("payload_size", 4),
         IntField("aset_id", 4),
         IntField("segment_id", 4),
@@ -181,10 +191,13 @@ class FragmentHeader(Header):
     __key_fields__ = ["tag", "aset_id", "segment_id", "fragment_id"]
 
 
+MAC_HEADER_VERSION = 2
+
 class MacHeader(Header):
     __fields__ = fields_by_name(
         BytesField("tag", 8, b'trissmac'),
-        IntField("version", 2, 1),
+        IntField("version", 2, MAC_HEADER_VERSION),
+        IntField("payload_size", 4),
         IntField("aset_id", 4),
         # Store key for this fragment.
         IntField("fragment_id", 4),
@@ -195,5 +208,5 @@ class MacHeader(Header):
         IntField("slice_id", 4),
         IntField("slice_count", 4),
         IntField("key_size_bytes", 4),
-        StrField("algorithm", 24))
+        StrField("algorithm", 20))
     __key_fields__ = ["tag", "aset_id", "fragment_id", "slice_id"]

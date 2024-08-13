@@ -5,6 +5,7 @@ import mimetypes
 from pathlib import Path
 import re
 import subprocess
+from subprocess import PIPE, Popen, TimeoutExpired
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -13,10 +14,10 @@ except ModuleNotFoundError:
     HAVE_PIL = False
 
 from triss import byte_streams
-from triss.codec import Encoder, Decoder
+from triss.codec import Reader, Encoder, Decoder
 from triss.codec.data_file import FileWriter, FileReader
-from triss.header import FragmentHeader, MacHeader
-from triss.util import eprint
+from triss.header import FragmentHeader, MacHeader, Header
+from triss.util import eprint, print_exception
 
 mimetypes.init()
 
@@ -41,9 +42,16 @@ QR_ECC_LEVEL = "M"
 QR_NUM_MODULES = 137
 QR_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - FragmentHeader.size_bytes()
 QR_MAC_DATA_SIZE_BYTES = QR_SIZE_MAX_BYTES - MacHeader.size_bytes()
-QR_BOX_SIZE = 8
-QR_BORDER = 6
-MARGIN = QR_BOX_SIZE * QR_BORDER
+# QR_MODULE_SIZE: A "module" is a single little square of the QR code,
+# QR_MODULE_SIZE is its side length in pixels. This value also determines the
+# resolution of the final output image (higher value => higher quality + larger
+# image size).
+QR_MODULE_SIZE = 8
+# QR_BORDER: Empty margin around QR code in units of modules (i.e. QR code
+# cells of side length QR_MODULE_SIZE). For a QR code to scan well, there needs
+# to be pleny of whitespace around it, so be generous with this.
+QR_BORDER = 20
+MARGIN = QR_MODULE_SIZE * QR_BORDER
 
 TRY_FONTS = ["Helvetica.ttf", "DejaVuSans.ttf", "Arial.ttf"]
 
@@ -103,7 +111,7 @@ def do_qrencode(data, path):
     #    1273 bytes of data in High error correction mode.
     proc = subprocess.run(
         ["qrencode", "-o", str(path), "--level", QR_ECC_LEVEL, "--8bit",
-         "--size", str(QR_BOX_SIZE), "--margin", str(QR_BORDER),
+         "--size", str(QR_MODULE_SIZE), "--margin", str(QR_BORDER),
          "--symversion", "auto"],
         input=data,
         capture_output=True)
@@ -172,10 +180,10 @@ def add_caption(img, title, subtitle="", detail=""):
     # Size images so text has constant size regardless of the qrcode size.
     spacing = 6
     # width of version qr code
-    w = (QR_NUM_MODULES + 2 * QR_BORDER) * QR_BOX_SIZE
-    title_font = find_font(6 * QR_BOX_SIZE)
-    subtitle_font = find_font(4 * QR_BOX_SIZE)
-    detail_font = find_font(2.5 * QR_BOX_SIZE)
+    w = (QR_NUM_MODULES + 2 * QR_BORDER) * QR_MODULE_SIZE
+    title_font = find_font(6 * QR_MODULE_SIZE)
+    subtitle_font = find_font(4 * QR_MODULE_SIZE)
+    detail_font = find_font(2.5 * QR_MODULE_SIZE)
     title_h = font_height(title_font, title, spacing=spacing)
     subtitle_h = font_height(subtitle_font, subtitle, spacing=spacing)
     detail_h = font_height(detail_font, detail, spacing=spacing)
@@ -292,7 +300,8 @@ def qr_decode(path):
     #    barcodes within the pattern of some qrcodes (about 1 / 100 times for
     #    random ~50 data byte qrcodes).
     # --raw
-    #    Don't prefix qrcode data with a url scheme qrcode:$DATA.
+    #    Don't prefix qrcode data with a url scheme qrcode:$DATA, or append a
+    #    newline to the output.
     # -Sbinary
     #    Don't decode qrcode data, return unmodified bytes instead.
     #
@@ -353,35 +362,6 @@ class QRReader(FileReader):
                 if mime_type and re.split('/', mime_type)[0] == 'image':
                     yield path
 
-# TODO get input from zbarcam instead of zbarimg.
-
-# class QRVideoStreamer(Reader):
-
-#     def __init__(self):
-#         ensure_prog(['zbarcam', '--version'], "to decode QRCODEs from video")
-#         self.blobs = {}
-
-#     def read_file(self, path, *, seek=0):
-#         data = qr_decode(path)
-#         yield data[seek:]
-
-#     def find_files(self):
-#         for d in self.in_dirs:
-#             for path in Path(d).iterdir():
-#                 mime_type = mimetypes.types_map.get(path.suffix.lower())
-#                 if mime_type and re.split('/', mime_type)[0] == 'image':
-#                     yield path
-
-#     def input_streams(self):
-#         for f in self.find_files():
-#             yield (f, self.read_file(f))
-
-#     def payload_stream(self, tagged_input):
-#         return self.read_file(tagged_input.handle,
-#                               seek=tagged_input.header.size_bytes())
-
-
-
 
 def encoder(out_dir, secret_name, **opts):
     return QREncoder(out_dir, secret_name, **opts)
@@ -389,3 +369,107 @@ def encoder(out_dir, secret_name, **opts):
 
 def decoder(in_dirs, **opts):
     return Decoder(QRReader(in_dirs), name="QRDecoder", **opts)
+
+
+def qr_decode_video_stream():
+    # Invoke zbarcam with args:
+    # -Senable=0 -Sqrcode.enable=1
+    #    Disable all decoders, then reenable only qrcode decoder
+    #    If any other decoders are enabled, they occasionally detect spurious
+    #    barcodes within the pattern of some qrcodes (about 1 / 100 times for
+    #    random ~50 data byte qrcodes).
+    # --raw
+    #    Don't prefix qrcode data with a url scheme qrcode:$DATA. But NOTE
+    #    unlike zbarimg, `zbarcam --raw ...` emits a newline after printing
+    #    output, even when -Sbinary is set.
+    # -Sbinary
+    #    Don't decode qrcode data, return unmodified bytes instead.
+    #
+    # Note zbarcam also has an --xml flag, but -Sbinary is broken in xml output
+    # mode. Otherwise, it would be convenient because it delmits scanned qrcode
+    # data by xml tree node.
+    #
+    # Set bufsize=0 to make output unbuffered.
+    with Popen(['zbarcam', '-Senable=0', '-Sqrcode.enable=1',
+                '--raw', '-Sbinary'],
+               stdout=PIPE, stderr=PIPE, bufsize=0) as proc:
+        try:
+            while True:
+                status = proc.poll()
+                if status is not None:
+                    try:
+                        out, err = proc.communicate(timeout=30)
+                    except TimeoutExpired:
+                        raise RuntimeError(
+                            "Timeout waiting for last output from zbarcam after it exited.")
+                    if status == 0:
+                        return
+                    eprint(f"Non zero exit status from zbarcam: {status} "
+                           f"with stdout: {out}\nstderr: {err}")
+                    return
+                # Yield 1 byte at a time to avoid blocking at the end of
+                # scanning a qrcode, in order to give the user immediate
+                # feedback after each scan.
+                yield proc.stdout.read(1)
+        except KeyboardInterrupt:
+            proc.terminate()
+            try:
+                out, err = proc.communicate(timeout=30)
+            except TimeoutExpired:
+                eprint("Timeout waiting for zbarcam to terminate.")
+                proc.kill()
+            return
+
+
+def parse_qr_video_stream(stream):
+    while True:
+        header, stream, errors = Header.parse(stream)
+        if errors:
+            for e in errors:
+                if e.args and "version" in e.args[0]:
+                    print_exception(e)
+            # No valid header at beginning of stream, throw away first byte and
+            # try again.
+            try:
+                garbage, stream = byte_streams.take_and_drop(1, stream)
+                continue
+            except StopIteration:
+                # Unless the stream is exhausted.
+                return
+
+        payload, stream = byte_streams.take_and_drop(
+            header.payload_size, stream)
+        yield (header, payload)
+
+
+class QRScanner(Reader):
+
+    def __init__(self):
+        ensure_prog(['zbarcam', '--version'], "to scan QRCODEs from video")
+        self.payloads = {}
+
+    def eprint(self, *args):
+        eprint(f"{type(self).__name__}:", *args)
+
+    def input_streams(self):
+        if self.payloads:
+            raise RuntimeError("Tried to call input_streams() more than once.")
+        eprint("Scanning QR codes with default camera device.")
+        eprint("Close the scanner window or send a keyboard interrupt "
+               "(Ctrl-C) to continue once you're done scanning.")
+        for header, payload in parse_qr_video_stream(qr_decode_video_stream()):
+            handle = header.to_key()
+            self.payloads[handle] = payload
+            eprint("Scanned QR code with header: ", header)
+            yield (handle, [header.to_bytes(), payload])
+
+    def payload_stream(self, tagged_input):
+        try:
+            return [self.payloads[tagged_input.handle]]
+        except KeyError as e:
+            raise ValueError("No input available for header with key "
+                             f"{handle}: {header}") from e
+
+
+def scanner(*unused, **opts):
+    return Decoder(QRScanner(), name="QRScannerDecoder", **opts)

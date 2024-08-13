@@ -39,7 +39,8 @@ DEFAULT_FORMAT = 'DATA'
 DECODERS = {
     'DATA': [data_file.decoder],
     'QRCODE': [qrcode.decoder],
-    'ALL': [data_file.decoder, qrcode.decoder]
+    'QRCODE_SCANNER': [qrcode.scanner],
+    'GUESS': [data_file.decoder, qrcode.decoder]
 }
 
 
@@ -186,7 +187,7 @@ def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
                 os.fsync(f.fileno())
         if n_chunks > 0:
             if verbose():
-                decoder.eprint("Successfully decoded!")
+                decoder.eprint("Decoding successful!")
             return (True, verbose())  # success, print messages in verbose mode
         else:
             decoder.eprint("Produced no output.")
@@ -203,10 +204,14 @@ def try_decode(decoder_cls, dirs, out_file, ignore_mac_error):
     return False
 
 
-def do_combine(dirs, out_file, input_format='ALL', ignore_mac_error=False):
+def do_combine(dirs,
+               out_file,
+               input_format='GUESS',
+               scan_qrcodes=False,
+               ignore_mac_error=False):
     decoders = DECODERS[input_format]
     print_errors = True
-    if verbose():
+    if verbose() or input_format == 'QRCODE_SCANNER':
         # Don't interfere with stderr
         cm = contextlib.nullcontext(None)
     else:
@@ -232,7 +237,10 @@ def do_combine(dirs, out_file, input_format='ALL', ignore_mac_error=False):
             if err:
                 eprint(err, end='')
 
-    raise RuntimeError(f"Unable to decode data in {iter_str(dirs)}.")
+    err = "Unable to decode data"
+    if dirs:
+        err += f" in {iter_str(dirs)}"
+    raise RuntimeError(err)
 
 
 def try_identify(decoder_cls, dirs):
@@ -252,7 +260,7 @@ def try_identify(decoder_cls, dirs):
     return False
 
 
-def do_identify(dirs, input_format='ALL'):
+def do_identify(dirs, input_format='GUESS'):
     decoders = DECODERS[input_format]
     for decoder_cls in decoders:
         if try_identify(decoder_cls, dirs):

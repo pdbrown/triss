@@ -45,7 +45,7 @@ def test_invalid_mac(tmp_path):
     for part in share0.iterdir():
         with part.open('rb') as f:
             malleable = f.read()
-            header, _ = Header.parse([malleable])
+            header, _, _ = Header.parse([malleable])
             if isinstance(header, FragmentHeader):
                 break
     assert part is not None

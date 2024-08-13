@@ -203,7 +203,8 @@ class Encoder:
                 payload = list(payload)
                 self.mac_slice_count = len(payload)
             for slice_id, chunk in enumerate(payload):
-                mac_header = MacHeader(aset_id=h.aset_id,
+                mac_header = MacHeader(payload_size=len(chunk),
+                                       aset_id=h.aset_id,
                                        fragment_id=h.fragment_id,
                                        segment_count=h.segment_count,
                                        fragment_count=fragment_count,
@@ -386,12 +387,20 @@ class MacLoader:
                                      self.decoder.segment_count,
                                      header0.fragment_count,
                                      slice_count)
-        payload = b''
+        mac_data = b''
         for slice_id in range(slice_count):
             tagged_input = mac_slices[slice_id]
+            payload = b''
             for chunk in self.decoder.reader.payload_stream(tagged_input):
                 payload += chunk
-        return (header0, payload)
+            n_bytes = len(payload)
+            if n_bytes != tagged_input.header.payload_size:
+                raise ValueError(
+                    f"Expected to decode {tagged_input.header.payload_size} "
+                    f"bytes, but got {n_bytes} bytes of MAC data for "
+                    f"{fragment_id=} of authorized set {aset_id=}")
+            mac_data += payload
+        return (header0, mac_data)
 
     @staticmethod
     def fragment_macs_digest_index(header, data):
@@ -624,12 +633,11 @@ class Decoder:
 
         # Register all inputs from all available shares.
         for handle, input_stream in self.reader.input_streams():
-            try:
-                header, input_stream = Header.parse(input_stream)
-            except Exception as e:
-                self.eprint(f"Unable to parse header in {handle}, skipping it."
-                            " Parsing failed with:")
-                print_exception(e)
+            header, input_stream, errors = Header.parse(input_stream)
+            if errors:
+                print_exception(ExceptionGroup(
+                    f"Unable to parse header in {handle}, skipping it."
+                    " Parsing failed with:", errors))
                 continue
             try:
                 self.register_header(header, handle)

@@ -42,9 +42,9 @@ def cli():
 
     m = sp.add_parser('combine',
                       help="Combine shares and reconstruct secret.")
-    m.add_argument('in_dirs', type=str, nargs='+',
+    m.add_argument('in_dirs', type=str, nargs='*',
                    metavar='DIR',
-                   help="one or more directories containing input files to "
+                   help="zero or more directories containing input files to "
                    "combine")
     m.add_argument('--DANGER-invalid-ok', required=False,
                    action='store_true',
@@ -53,6 +53,8 @@ def cli():
                    "the original input.")
     m.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
                    help="input file format, will guess if omitted")
+    m.add_argument('-s', required=False, action='store_true',
+                   help="scan QR codes using default video camera device.")
     m.add_argument('-o', type=str, required=False,
                    metavar='OUT_FILE',
                    help="write secret to output file, or stdout if omitted")
@@ -68,7 +70,12 @@ def cli():
 
     args = parser.parse_args()
     core.python_version_check()
-    fmt = args.c or 'ALL'
+    if args.c:
+        fmt = args.c
+    elif args.s:
+        fmt = 'QRCODE_SCANNER'
+    else:
+        fmt = 'GUESS'
     if args.verbose:
         util.verbose(True)
     if args.command == 'split':
@@ -76,7 +83,12 @@ def cli():
                       m=args.m, n=args.n,
                       secret_name=args.t, skip_combine_check=args.k)
     elif args.command == 'combine':
-        core.do_combine(args.in_dirs, args.o, fmt,
+        if not args.in_dirs and fmt != 'QRCODE_SCANNER':
+            raise RuntimeError(
+                "Error: Must specify either an input directory or enable "
+                "QR code scanning with the '-s' flag.")
+        core.do_combine(args.in_dirs, args.o,
+                        input_format=fmt,
                         ignore_mac_error=args.DANGER_invalid_ok)
     elif args.command == 'identify':
         core.do_identify(args.in_dirs, fmt)
