@@ -1,4 +1,4 @@
-## 2.0a1
+## 2.0
 
 ### BREAKING Changes
 - Bump MacHeader version from 1 to 2 and drop support for version 1.
