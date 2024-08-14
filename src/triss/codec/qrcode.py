@@ -15,8 +15,9 @@ except ModuleNotFoundError:
 
 from triss import byte_streams
 from triss.codec import Reader, Encoder, Decoder, TaggedInput
-from triss.codec.data_file import FileWriter, FileReader
-from triss.header import FragmentHeader, MacHeader, Header, InvalidHeaderError, HeaderParseError
+from triss.codec.data_file import FileWriter
+from triss.header import FragmentHeader, MacHeader, \
+    Header, InvalidHeaderError, HeaderParseError
 from triss.util import eprint, print_exception
 
 mimetypes.init()
@@ -335,7 +336,6 @@ def parse_qr_data(stream):
     STREAM is an iterable of byte sequences.
     """
     while True:
-        error = None
         try:
             header, stream = Header.parse(stream)
         except StopIteration:
@@ -449,9 +449,10 @@ def qr_video_input():
                 if status is not None:
                     try:
                         out, err = proc.communicate(timeout=30)
-                    except TimeoutExpired:
+                    except TimeoutExpired as e:
                         raise RuntimeError(
-                            "Timeout waiting for last output from zbarcam after it exited.")
+                            "Timeout waiting for last output from zbarcam "
+                            "after it exited.") from e
                     if status == 0:
                         return
                     eprint(f"Non zero exit status from zbarcam: {status} "
@@ -520,8 +521,9 @@ def decoder(in_dirs, **opts):
     if in_dirs:
         reader = QRReader(in_dirs)
         if opts.get('scanner', False):
+            del opts["scanner"]
             reader = QRReaderScanner(reader)
-    else:
+    elif opts.get('scanner', False):
+        del opts["scanner"]
         reader = QRScanner()
-    del opts["scanner"]
     return Decoder(reader, **opts)

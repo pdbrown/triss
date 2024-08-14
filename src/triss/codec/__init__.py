@@ -7,7 +7,7 @@ import sys
 
 from triss import byte_streams
 from triss import crypto
-from triss.header import Header, FragmentHeader, MacHeader
+from triss.header import FragmentHeader, MacHeader
 from triss.util import eprint, print_exception
 
 

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from triss.codec import Writer, Appender, Reader, AppendingEncoder, Decoder, \
     TaggedInput
-from triss import header
 from triss.header import Header
 from triss.util import eprint, print_exception
 
