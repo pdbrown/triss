@@ -19,6 +19,12 @@ Triss supports two output modes: `DATA` and `QRCODE`. In `DATA` mode, it writes
 shares as plain binary files without any special encoding. In `QRCODE` mode, it
 generates QR codes as PNG images that can be printed onto paper.
 
+It's pretty hard to reliably read QR codes from photos, unless they are of very
+high quality: sharp, high contrast, and not at all warped. Decoding from video
+is much easier, so triss supports that too using a webcam as a QR code scanner.
+Video input is probably more reliable because the decoder can make hundreds of
+attempts per scan, one for each frame of video.
+
 ## Contents
 
 - [Rationale](#rationale)
@@ -94,12 +100,12 @@ Triss requires python `3.11` or newer. There are no additional prerequisites for
 `DATA` file mode, but `QRCODE` support depends on 3rd party libraries and
 external programs.
 
-| Dependency                                          | Type             | Feature        | Minimum Version |   Released |
-|-----------------------------------------------------|------------------|----------------|-----------------|------------|
-| python                                              |                  |                |            3.11 | 2022-10-24 |
-| [`pillow`](https://pypi.org/project/pillow/)        | Python Library   | QRCODE split   |          10.4.0 | 2024-07-01 |
-| [`qrencode`](https://github.com/fukuchi/libqrencode)| External Program | QRCODE split   |           4.1.1 | 2020-09-28 |
-| [`zbarimg`](https://github.com/mchehab/zbar)        | External Program | QRCODE combine |          0.23.1 | 2020-04-20 |
+| Dependency                                            | Type             | Feature        | Minimum Version |   Released |
+|-------------------------------------------------------|------------------|----------------|-----------------|------------|
+| python                                                |                  |                |            3.11 | 2022-10-24 |
+| [`pillow`](https://pypi.org/project/pillow/)          | Python Library   | QRCODE split   |          10.4.0 | 2024-07-01 |
+| [`qrencode`](https://github.com/fukuchi/libqrencode)  | External Program | QRCODE split   |           4.1.1 | 2020-09-28 |
+| [`zbarimg`/`zbarcam`](https://github.com/mchehab/zbar)| External Program | QRCODE combine |          0.23.1 | 2020-04-20 |
 
 Note the minimum version of `zbarimg` is a hard requirement, because support for
 binary data was added in `0.23.1`. Older versions of `qrencode` and `pillow` may
@@ -206,15 +212,16 @@ options:
 
 ### Recover secret
 ```
-triss combine [-h] [--DANGER-invalid-ok] [-c {DATA,QRCODE}] [-o OUT_FILE] DIR [DIR ...]
+triss combine [-h] [--DANGER-invalid-ok] [-c {DATA,QRCODE}] [-s] [-o OUT_FILE] [DIR ...]
 
 positional arguments:
-  DIR                  one or more directories containing input files to combine
+  DIR                  zero or more directories containing input files to combine
 
 options:
   -h, --help           show this help message and exit
   --DANGER-invalid-ok  don't stop decoding on message authentication error. WARNING! There is no guarantee the decoded output matches the original input.
   -c {DATA,QRCODE}     input file format, will guess if omitted
+  -s                   scan QR codes using default video camera. Implies '-c QRCODE'.
   -o OUT_FILE          write secret to output file, or stdout if omitted
 ```
 
@@ -223,14 +230,15 @@ Print details about shares of a split secret without actually combining them.
 Also verify the integrity of any share parts for which the MAC key is present.
 
 ```
-triss identify [-h] [-c {DATA,QRCODE}] DIR [DIR ...]
+triss identify [-h] [-c {DATA,QRCODE}] [-s] [DIR ...]
 
 positional arguments:
-  DIR               one or more directories containing input files to identify
+  DIR               zero or more directories containing input files to identify
 
 options:
   -h, --help        show this help message and exit
   -c {DATA,QRCODE}  input file format, will guess if omitted
+  -s                scan QR codes using default video camera. Implies '-c QRCODE'.
 ```
 
 ### Examples
@@ -304,6 +312,10 @@ triss combine -o output.txt data-shares/share-0 data-shares/share-3
 
 # Recover from original QR code image files, or photos of printed copies.
 triss combine -o output_qr.txt qr-shares/share-1 qr-shares/share-2
+
+# Recover one QR share from image files, another by scanning QR codes with
+# your webcam.
+triss combine -o output_qr.txt -s shares/share-1
 ```
 
 ### Distribute shares

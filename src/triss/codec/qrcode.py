@@ -478,7 +478,7 @@ class QRScanner(QRReaderBase):
         ensure_prog(['zbarcam', '--version'], "to scan QRCODEs from video")
 
     def locate_inputs(self):
-        eprint("Scanning QR codes with default camera device.")
+        eprint("Scanning QR codes with default camera.")
         eprint("Close the scanner window or send a keyboard interrupt "
                "(Ctrl-C) to continue once you're done scanning.")
         try:

@@ -54,7 +54,7 @@ def cli():
     m.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
                    help="input file format, will guess if omitted")
     m.add_argument('-s', required=False, action='store_true',
-                   help="scan QR codes using default video camera device. "
+                   help="scan QR codes using default video camera. "
                    "Implies '-c QRCODE'.")
     m.add_argument('-o', type=str, required=False,
                    metavar='OUT_FILE',
@@ -69,7 +69,7 @@ def cli():
     m.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
                    help="input file format, will guess if omitted")
     m.add_argument('-s', required=False, action='store_true',
-                   help="scan QR codes using default video camera device. "
+                   help="scan QR codes using default video camera. "
                    "Implies '-c QRCODE'.")
 
     args = parser.parse_args()
