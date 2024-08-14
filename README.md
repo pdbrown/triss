@@ -241,6 +241,25 @@ options:
   -s                scan QR codes using default video camera. Implies '-c QRCODE'.
 ```
 
+### Merge QRCODE (PNG) images
+This is an optional utility to concatenate multiple images into fewer, larger
+ones. Use it to combine the contents of a QRCODE share consisting of many
+images, so it can be distributed or printed more conveniently. This does not
+decode or decrypt any images, it merely concatenates them. It works on any input
+images and produces PNG outputs.
+
+```
+triss n_up [-h] N IMAGE [IMAGE ...] OUTPUT_NAME
+
+positional arguments:
+  N            number of images per page of output
+  IMAGE        one or more input image files
+  OUTPUT_NAME  output image name, n_up adds page numbers and a .png suffix
+
+options:
+  -h, --help   show this help message and exit
+```
+
 ### Examples
 
 Prepare a demo secret for the following examples.
@@ -300,21 +319,29 @@ QR codes. This allows you to make paper copies, but can be slow and cumbersome
 for large inputs. Each QR code stores up to 1370 bytes.
 
 ```bash
-# Make a 2-of-4 split in QRCODE mode
+# Make a 2-of-4 split in QRCODE mode.
 triss split -i secret.txt -c QRCODE -t mysecret -m 2 4 qr-shares
+
+# Stitch components of each output share into larger images
+# (into a single 2x3 image for this example).
+for share in $(find qr-shares -type d -name 'share-*'); do
+  triss n_up 6 "$share/"*.png "${share}-6up.png"
+done
 ```
 
 #### Recover secret
 
 ```bash
-# Recover from any 2 shares
+# Recover from any 2 shares.
 triss combine -o output.txt data-shares/share-0 data-shares/share-3
 
-# Recover from original QR code image files, or photos of printed copies.
+# Recover from original QR code images.
 triss combine -o output_qr.txt qr-shares/share-1 qr-shares/share-2
 
-# Recover one QR share from image files, another by scanning QR codes with
-# your webcam.
+# Recover QR codes scanned by your webcam.
+triss combine -o output_qrscanner.txt -s
+
+# Recover from both QR images on disk and QR codes scanned by your webcam.
 triss combine -o output_qr.txt -s shares/share-1
 ```
 

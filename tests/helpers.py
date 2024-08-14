@@ -4,14 +4,14 @@
 from pathlib import Path
 import subprocess
 
-from triss import byte_streams
+from triss import byte_streams, image
 from triss.util import eprint
 from triss.codec import qrcode
 
 try:
     qrcode.encoder(".", "dummy")
     qrcode.decoder(["."])
-    HAVE_QRCODE = qrcode.HAVE_PIL
+    HAVE_QRCODE = image.HAVE_PIL
 except Exception:
     HAVE_QRCODE = False
 

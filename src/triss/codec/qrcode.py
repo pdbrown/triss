@@ -8,12 +8,11 @@ import subprocess
 from subprocess import PIPE, Popen, TimeoutExpired
 
 try:
-    from PIL import Image, ImageDraw, ImageFont
-    HAVE_PIL = True
+    from PIL import Image, ImageDraw
 except ModuleNotFoundError:
-    HAVE_PIL = False
+    pass
 
-from triss import byte_streams
+from triss import byte_streams, image
 from triss.codec import Reader, Encoder, Decoder, TaggedInput
 from triss.codec.data_file import FileWriter
 from triss.header import FragmentHeader, MacHeader, \
@@ -54,8 +53,6 @@ QR_MODULE_SIZE = 8
 QR_BORDER = 20
 MARGIN = QR_MODULE_SIZE * QR_BORDER
 
-TRY_FONTS = ["Helvetica.ttf", "DejaVuSans.ttf", "Arial.ttf"]
-
 
 def eprint_stdout_stderr(proc):
     if proc.stdout:
@@ -68,16 +65,6 @@ def proc_stderr(proc):
         return proc.stderr.decode('utf-8').strip()
     else:
         return ""
-
-
-def ensure_pil():
-    if not HAVE_PIL:
-        raise RuntimeError(
-            "Error: QRCODE output format requires the Python Image Library "
-            "(PIL) as provided by the pillow dist package, but it is not "
-            "available.\n"
-            "Try reinstalling triss:   pip install --upgrade triss\n"
-            "or try installing pillow: pip install pillow")
 
 
 def ensure_prog(cmdline, reason):
@@ -130,91 +117,42 @@ def do_qrencode(data, path):
             f"qrencode failed with error writing to {path}.")
 
 
-def load_image(path):
-    # Read image data into img, then close img_path keeping img in memory.
-    with Image.open(path) as img:
-        img.load()
-    return img
-
-
-def merge_img_y(im_top, im_bottom):
-    w = max(im_top.size[0], im_bottom.size[0])
-    h = im_top.size[1] + im_bottom.size[1]
-    im = Image.new('RGBA', (w, h), 'white')
-    im.paste(im_top)
-    im.paste(im_bottom, (0, im_top.size[1]))
-    return im
-
-
-def pad_vertical(img):
-    w, h = img.size
-    if w <= h:
-        return img
-    out = Image.new('RGBA', (w, w + 1), 'white')
-    out.paste(img)
-    return out
-
-
-def find_font(size):
-    size = int(size)
-    for font in TRY_FONTS:
-        try:
-            return ImageFont.truetype(font, size)
-        except Exception:
-            pass
-    return None
-
-
-def font_height(font, text, spacing=4):
-    img = Image.new("RGBA", (1, 1))
-    d = ImageDraw.Draw(img)
-    (left, top, right, bottom) = d.multiline_textbbox(
-        (0, 0), text, font=font, spacing=spacing)
-    return bottom - top
-
-
-def add_xy(pos, dxdy):
-    x, y = pos
-    dx, dy = dxdy
-    return (x + dx, y + dy)
-
-
 def add_caption(img, title, subtitle="", detail=""):
     # Size images so text has constant size regardless of the qrcode size.
     spacing = 6
     # width of version qr code
     w = (QR_NUM_MODULES + 2 * QR_BORDER) * QR_MODULE_SIZE
-    title_font = find_font(6 * QR_MODULE_SIZE)
-    subtitle_font = find_font(4 * QR_MODULE_SIZE)
-    detail_font = find_font(2.5 * QR_MODULE_SIZE)
-    title_h = font_height(title_font, title, spacing=spacing)
-    subtitle_h = font_height(subtitle_font, subtitle, spacing=spacing)
-    detail_h = font_height(detail_font, detail, spacing=spacing)
+    title_font = image.find_font(6 * QR_MODULE_SIZE)
+    subtitle_font = image.find_font(4 * QR_MODULE_SIZE)
+    detail_font = image.find_font(2.5 * QR_MODULE_SIZE)
+    title_h = image.font_height(title_font, title, spacing=spacing)
+    subtitle_h = image.font_height(subtitle_font, subtitle, spacing=spacing)
+    detail_h = image.font_height(detail_font, detail, spacing=spacing)
     y_margin = 6 * spacing
     h = MARGIN + title_h + subtitle_h + detail_h + 3 * y_margin
     capt = Image.new('RGBA', (w, h), 'white')
     d = ImageDraw.Draw(capt)
     cursor = (MARGIN, MARGIN)  # top-left corner of layout
     d.text(cursor, title, fill='black', font=title_font, spacing=spacing)
-    cursor = add_xy(cursor, (0, title_h + y_margin))
+    cursor = image.add_xy(cursor, (0, title_h + y_margin))
     if subtitle:
         d.text(cursor, subtitle, fill='black', font=subtitle_font,
                spacing=spacing)
-        cursor = add_xy(cursor, (0, subtitle_h + y_margin))
+        cursor = image.add_xy(cursor, (0, subtitle_h + y_margin))
     if detail:
         d.text(cursor, detail, fill='black', font=detail_font, spacing=spacing)
     line_y = h - 1  # bottom of caption image
     d.line(((MARGIN, line_y), (w - MARGIN, line_y)), 'gray')
 
-    captioned = merge_img_y(capt, img)
+    captioned = image.merge_y(capt, img)
     # Add enough vertical padding to make image square so it prints in portrait
     # orientation by default.
-    return pad_vertical(captioned)
+    return image.pad_vertical(captioned)
 
 
 def qr_encode(data, path, *, title="", subtitle="", detail=""):
     do_qrencode(data, path)
-    img = load_image(path)
+    img = image.load(path)
     if title:
         img = add_caption(img, title, subtitle, detail)
     img.save(path)
@@ -226,7 +164,7 @@ class QRWriter(FileWriter):
     def __init__(self, out_dir, secret_name):
         super().__init__(out_dir)
         self.secret_name = secret_name
-        ensure_pil()
+        image.ensure_pil(what_for="QRCODE output requires")
         ensure_prog(['qrencode', '--version'], "to encode QRCODEs")
 
     def summary(self, encoder):

@@ -4,7 +4,7 @@
 import argparse
 import sys
 
-from triss import core, util
+from triss import core, paper, util
 from triss.util import print_exception
 
 
@@ -60,20 +60,34 @@ def cli():
                    metavar='OUT_FILE',
                    help="write secret to output file, or stdout if omitted")
 
-    m = sp.add_parser('identify',
+    i = sp.add_parser('identify',
                       help="Describe a share and check its integrity.")
-    m.add_argument('in_dirs', type=str, nargs='*',
+    i.add_argument('in_dirs', type=str, nargs='*',
                    metavar='DIR',
                    help="zero or more directories containing input files to "
                    "identify")
-    m.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
+    i.add_argument('-c', required=False, choices=['DATA', 'QRCODE'],
                    help="input file format, will guess if omitted")
-    m.add_argument('-s', required=False, action='store_true',
+    i.add_argument('-s', required=False, action='store_true',
                    help="scan QR codes using default video camera. "
                    "Implies '-c QRCODE'.")
 
+    p = sp.add_parser('n_up',
+                      help="Helper utility to merge PNG images")
+    p.add_argument('n', type=int, metavar='N',
+                   help="number of images per page of output")
+    p.add_argument('input_images', type=str, nargs='+', metavar='IMAGE',
+                   help="one or more input image files")
+    p.add_argument('output_name', type=str, metavar='OUTPUT_NAME',
+                   help="output image name, n_up adds page numbers and a .png suffix")
+
     args = parser.parse_args()
     core.python_version_check()
+
+    if args.command == 'n_up':
+        paper.n_up(args.n, args.input_images, args.output_name)
+        return
+
     if args.c:
         fmt = args.c
     else:

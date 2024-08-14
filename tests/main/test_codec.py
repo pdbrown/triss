@@ -5,10 +5,12 @@ import itertools
 
 import pytest
 
+from triss import paper
 from triss.byte_streams import resize_seqs
 from triss.codec import memory, data_file, qrcode
 from triss.header import Header, FragmentHeader
 from .. import helpers
+from . import test_core
 
 
 def test_fragment_header():
@@ -81,23 +83,26 @@ def test_qr_encoder_decoder(tmp_path):
 
 
 @pytest.mark.skipif(not helpers.HAVE_QRCODE, reason="QRCODE not available")
-def test_qr_encoder_decoder_2up(tmp_path):
+def test_qr_encoder_decoder_n_up(tmp_path):
     data = [b'asdf', b'qwer']
     data_out = [b'asdfqwer']
-    n = 2
-    encoder = qrcode.encoder(tmp_path, "test secret")
-    encoder.encode(data, n, n)
 
-    shares = list(tmp_path.iterdir())
+    # 8 files per share 2 * (4 choose 1), divided into 3 pages: 3, 3, 2 images
+    # per pg.
+    m = 2
+    n = 5
+    n_up = 3
+
+    encoder = qrcode.encoder(tmp_path, "test secret")
+    encoder.encode(data, m, n)
+
+    shares = test_core.select_m_shares(m)(tmp_path)
+
     for share in shares:
-        imgs = []
-        for f in share.iterdir():
-            imgs.append(qrcode.load_image(f))
+        inputs = list(share.iterdir())
+        paper.n_up(n_up, inputs, share / "n_up.png")
+        for f in inputs:
             f.unlink()
-        combined = imgs[0]
-        for img in imgs[1:]:
-            combined = qrcode.merge_img_y(combined, img)
-        combined.save(share / "combined.png")
 
     decoder = qrcode.decoder(shares)
     assert list(decoder.decode()) == data_out
