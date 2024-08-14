@@ -173,8 +173,8 @@ pip download triss
 gpg --keyserver keyserver.ubuntu.com --recv-keys 219E9F62C560C55D2AFA44AEE970EC6EC2E57448
 
 # Download SHA256SUMS and SHA256SUMS.asc
-wget https://github.com/pdbrown/triss/releases/download/v2.0/SHA256SUMS
-wget https://github.com/pdbrown/triss/releases/download/v2.0/SHA256SUMS.asc
+wget https://github.com/pdbrown/triss/releases/download/v2.1/SHA256SUMS
+wget https://github.com/pdbrown/triss/releases/download/v2.1/SHA256SUMS.asc
 
 # Verify the package
 gpg --verify SHA256SUMS.asc
@@ -514,7 +514,7 @@ source venv/bin/activate
 
 # 6) Download and install triss
 mkdir wheel && cd wheel
-TRISS_VERSION=2.0
+TRISS_VERSION=2.1
 pip download triss==$TRISS_VERSION
 
 gpg --keyserver keyserver.ubuntu.com --recv-keys 219E9F62C560C55D2AFA44AEE970EC6EC2E57448
