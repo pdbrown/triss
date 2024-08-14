@@ -433,7 +433,9 @@ it for subsequent development.
 #### Container
 ```bash
 # Build a docker image that contains a signed dist of triss and its python,
-# qrencode, and zbarimg dependencies.
+# qrencode, and zbarimg dependencies. Note that zbarcam probably won't work
+# because it won't be able to communicate with a webcam from inside the
+# container.
 
 make docker
 # or if you prefer podman, do
@@ -466,6 +468,93 @@ sudo systemd-nspawn --quiet --directory rootfs \
 # And find the shares here:
 find rootfs/app/shares
 ```
+
+#### LiveCD Bundle
+
+To run `triss` on a [LiveCD system](https://www.debian.org/CD/live/), for
+example to run on a bare metal, air gapped machine, prepare `triss` and its
+dependencies as follows. You could do the initial setup in an internet-connected
+VM.
+
+##### Create LiveCD Bundle
+```bash
+# Boot a Debian LiveCD image, see https://www.debian.org/CD/live/
+
+# 1) Install triss deps
+sudo apt update
+sudo apt install -y python3-venv qrencode zbar-tools
+
+# 2) Then list installed and upgraded packages from last stanza in log with:
+mkdir triss-livecd-bundle && cd triss-livecd-bundle
+
+tac /var/log/apt/history.log |
+  sed -n '1,/^Start-Date:/p' |
+  grep -E 'Install|Upgrade' |
+  perl -p \
+       -e 's/\(.*?\)//g;' \
+       -e 's/^(Install|Upgrade): //;' \
+       -e 's/,/\n/g;' |
+  perl -p \
+       -e 's/:.*//g;' \
+       -e 's/ //g' \
+       > packages.txt
+
+# 3) Fetch them
+mkdir debs && cd debs
+apt-get download $(cat ../packages.txt)
+
+# 4) Compute (and optionally sign) checksums
+sha256sum debs/* > SHA256SUMS
+gpg --detach-sign --armor SHA256SUMS
+
+# 5) Create and activate a python virtual env
+$(command -v python3 || command -v python) -m venv venv
+source venv/bin/activate
+
+# 6) Download and install triss
+mkdir wheel && cd wheel
+TRISS_VERSION=2.0
+pip download triss==$TRISS_VERSION
+
+gpg --keyserver keyserver.ubuntu.com --recv-keys 219E9F62C560C55D2AFA44AEE970EC6EC2E57448
+curl -L -O https://github.com/pdbrown/triss/releases/download/v${TRISS_VERSION}/SHA256SUMS
+curl -L -O https://github.com/pdbrown/triss/releases/download/v${TRISS_VERSION}/SHA256SUMS.asc
+gpg --verify SHA256SUMS.asc
+sha256sum --ignore-missing --check SHA256SUMS
+
+# 7) Copy the bundle out onto a persistent filesystem, e.g. a USB flash drive.
+cd ../..
+cp -r triss-livecd-bundle $DESTINATION
+```
+
+##### Use LiveCD Bundle
+
+```bash
+# Boot a Debian LiveCD image, see https://www.debian.org/CD/live/
+
+# Obtain the triss-livecd-bundle you prepared previously
+cd triss-livecd-bundle
+
+# 1) Verify and install debs
+pushd debs
+gpg --verify SHA256SUMS.asc
+sha256sum --ignore-missing --check SHA256SUMS
+sudo dpkg -i *.deb
+popd
+
+# 2) Verify and install triss
+$(command -v python3 || command -v python) -m venv venv
+source venv/bin/activate
+pushd wheel
+gpg --verify SHA256SUMS.asc
+sha256sum --ignore-missing --check SHA256SUMS
+pip install *.whl
+popd
+
+# 3) Ready!
+triss -h
+```
+
 
 ### Publish
 Publish a dist package to PyPI with:
