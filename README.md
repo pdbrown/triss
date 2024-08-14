@@ -31,6 +31,7 @@ attempts per scan, one for each frame of video.
 - [How it works](#how-it-works)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Examples](#examples)
 - [Development](#development)
 - [Implementation details](#implementation-details)
 - [About](#about)
@@ -260,14 +261,14 @@ options:
   -h, --help   show this help message and exit
 ```
 
-### Examples
+## Examples
 
 Prepare a demo secret for the following examples.
 ```bash
 echo "Hello there." > secret.txt
 ```
 
-#### Split secret in DATA mode
+### Split secret in DATA mode
 
 Shares of the secret are stored in plain binary files. This handy when the
 secret is large and you don't care about making paper copies.
@@ -312,7 +313,7 @@ tree
 # └── secret.txt
 ```
 
-#### Split secret in QRCODE mode
+### Split secret in QRCODE mode
 
 Shares of the secret are produced the same way as in DATA mode, then encoded as
 QR codes. This allows you to make paper copies, but can be slow and cumbersome
@@ -329,7 +330,7 @@ for share in $(find qr-shares -type d -name 'share-*'); do
 done
 ```
 
-#### Recover secret
+### Recover secret
 
 ```bash
 # Recover from any 2 shares.
