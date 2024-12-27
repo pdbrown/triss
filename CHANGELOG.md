@@ -1,3 +1,8 @@
+## 2.2
+
+### Changes
+- Update build so `make` can be run outside of python virtualenv.
+
 ## 2.1
 
 ### Features

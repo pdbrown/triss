@@ -243,11 +243,10 @@ options:
 ```
 
 ### Merge QRCODE (PNG) images
-This is an optional utility to concatenate multiple images into fewer, larger
-ones. Use it to combine the contents of a QRCODE share consisting of many
-images, so it can be distributed or printed more conveniently. This does not
-decode or decrypt any images, it merely concatenates them. It works on any input
-images and produces PNG outputs.
+Concatenate multiple images into fewer, larger ones. Use it to combine the
+contents of a QRCODE share consisting of many images, so it can be distributed
+or printed more conveniently. This does not decode or decrypt any images, it
+merely concatenates them. It works on any input images and produces PNG outputs.
 
 ```
 triss n_up [-h] N IMAGE [IMAGE ...] OUTPUT_NAME
@@ -389,27 +388,19 @@ share-2
 
 ```bash
 git clone https://github.com/pdbrown/triss && cd triss
-```
 
-The following steps must be done in a python virtual environment, or else `make`
-will complain. Set one up like this:
+# Enable development mode: Create venv at ./venv, install python dependencies,
+# and create an "editable install".
+make dev
 
-```bash
-$(command -v python3 || command -v python) -m venv venv
+# Activate venv
 source venv/bin/activate
 ```
 
-Finally, enable development mode. This installs python dependencies and creates
-an "editable install" in the venv.
-
-```bash
-make dev
-```
-
 ### Test
-After installing the package, either from local sources with `make dev` or
-`make dist`, or from upstream repos with `make upstream`, run tests with:
-
+The `make test` recipe tests whatever package is currently installed. Install it
+either from local sources with `make dev`, from a local dist package with `make`, or
+from the upstream PYPI package index with `make upstream`, then run tests with:
 ```bash
 make test
 make stress
@@ -418,7 +409,7 @@ make stress
 ### Build
 ```bash
 # Build dist package.
-make dist
+make
 
 # Or build and sign it. The sign recipe invokes gpg and passes extra GPG_OPTS
 # you can set on the commandline.
@@ -427,9 +418,9 @@ make sign
 make sign GPG_OPTS='--default-key me@example.com'
 ```
 
-Note that `make dist` and `make sign` disable development mode (by running `pip
-install` in non-editable mode), so you'd need to re-run `make dev` to reenable
-it for subsequent development.
+Note that `make` and `make sign` replace any "editable install" created by
+`make dev` with a non-editable install. You need to re-run `make dev` to switch
+back to an "editable install".
 
 #### Container
 ```bash
@@ -501,12 +492,13 @@ tac /var/log/apt/history.log |
        > packages.txt
 
 # 3) Fetch them
-mkdir debs && cd debs
+mkdir debs && pushd debs
 apt-get download $(cat ../packages.txt)
 
-# 4) Compute (and optionally sign) checksums
-sha256sum debs/* > SHA256SUMS
+# 4) Compute and sign checksums
+sha256sum * > SHA256SUMS
 gpg --detach-sign --armor SHA256SUMS
+popd
 
 # 5) Create and activate a python virtual env
 $(command -v python3 || command -v python) -m venv venv
@@ -523,7 +515,7 @@ curl -L -O https://github.com/pdbrown/triss/releases/download/v${TRISS_VERSION}/
 gpg --verify SHA256SUMS.asc
 sha256sum --ignore-missing --check SHA256SUMS
 
-# 7) Copy the bundle out onto a persistent filesystem, e.g. a USB flash drive.
+# 7) Copy the bundle onto a persistent filesystem, e.g. a USB flash drive.
 cd ../..
 cp -r triss-livecd-bundle $DESTINATION
 ```
