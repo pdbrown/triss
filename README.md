@@ -227,8 +227,9 @@ options:
 ```
 
 ### Identify share parts
-Print details about shares of a split secret without actually combining them.
-Also verify the integrity of any share parts for which the MAC key is present.
+Use `triss identify` to show details of shares of a split secret without
+revealing the secret. Also verify the integrity of any share parts for which the
+MAC key is present.
 
 ```
 triss identify [-h] [-c {DATA,QRCODE}] [-s] [DIR ...]
@@ -242,11 +243,11 @@ options:
   -s                scan QR codes using default video camera. Implies '-c QRCODE'.
 ```
 
-### Merge QRCODE (PNG) images
-Concatenate multiple images into fewer, larger ones. Use it to combine the
-contents of a QRCODE share consisting of many images, so it can be distributed
-or printed more conveniently. This does not decode or decrypt any images, it
-merely concatenates them. It works on any input images and produces PNG outputs.
+### Merge images
+Use `triss n_up` to merge multiple images into fewer, larger PNG images. The
+idea is to tile multiple QRCODEs (from the **same share**, never mix shares!)
+onto each page so you can print fewer pages. This does not decode or decrypt
+anything.
 
 ```
 triss n_up [-h] N IMAGE [IMAGE ...] OUTPUT_NAME
@@ -398,15 +399,16 @@ source venv/bin/activate
 ```
 
 ### Test
-The `make test` recipe tests whatever package is currently installed. Install it
+The `make test` recipe tests whatever package is currently installed. Install
 either from local sources with `make dev`, from a local dist package with `make`, or
-from the upstream PYPI package index with `make upstream`, then run tests with:
+from PYPI with `make upstream`, then run tests with:
 ```bash
 make test
 make stress
 ```
 
 ### Build
+#### Dist package
 ```bash
 # Build dist package.
 make
@@ -418,21 +420,26 @@ make sign
 make sign GPG_OPTS='--default-key me@example.com'
 ```
 
-Note that `make` and `make sign` replace any "editable install" created by
-`make dev` with a non-editable install. You need to re-run `make dev` to switch
-back to an "editable install".
+Note that `make` and `make sign` replace any "editable install" created by `make
+dev` with a non-editable install. You need to re-run `make dev` to switch back
+to an "editable install".
 
-#### Container
+#### Container image
+
+Build an OCI image containing a signed dist of triss and its python, qrencode,
+and zbarimg dependencies. You can run it in a container or a chroot environment,
+but connecting to a host webcam from within a container can be tricky and is
+outside the scope of this guide.
+
 ```bash
-# Build a docker image that contains a signed dist of triss and its python,
-# qrencode, and zbarimg dependencies. Note that zbarcam probably won't work
-# because it won't be able to communicate with a webcam from inside the
-# container.
-
+# Build the container
 make docker
-# or if you prefer podman, do
+# or if you use podman, do
 make docker DOCKER=podman
+```
 
+To run the container with `docker`, do:
+```bash
 # The container entrypoint is the triss cli, and the image contains an /app
 # directory, so you can do:
 echo "General Kenobi." > secret.txt
@@ -444,15 +451,18 @@ docker run --rm -v .:/app triss:"$VERSION" \
 find ./shares
 ```
 
-You can also run the container with `systemd-nspawn`. After building the image,
-do:
+Extract the root file system image for a `chroot` environment or `systemd-nspawn`
+container:
 ```bash
 VERSION=$(awk -F\" '/^version/ { print $2 }' pyproject.toml)
-docker create --name triss_$VERSION triss:$VERSION
-docker export -o triss_${VERSION}.tar triss_${VERSION}
+docker create --name "triss_$VERSION" "triss:$VERSION"
+docker export -o "triss_${VERSION}.tar" "triss_$VERSION"
 mkdir rootfs
-tar xf triss_${VERSION}.tar -C rootfs
+tar xf "triss_${VERSION}.tar" -C rootfs
+```
 
+Run a `systemd-nspawn` container with:
+```bash
 echo "You are a bold one." > rootfs/app/input.dat
 sudo systemd-nspawn --quiet --directory rootfs \
     /venv/bin/triss split -i /app/input.dat -c QRCODE -m 2 3 /app/shares
@@ -461,24 +471,40 @@ sudo systemd-nspawn --quiet --directory rootfs \
 find rootfs/app/shares
 ```
 
-#### LiveCD Bundle
+Run `triss` in a chroot environment (with access to a host webcam and display)
+with:
+```bash
+sudo mount --rbind --make-rslave /dev rootfs/dev
+sudo mount --rbind --make-rslave /run rootfs/run
+sudo chroot rootfs /venv/bin/triss combine -c QRCODE -s  \
+    /app/shares/share-0 /app/shares/share-1 \
+    > output.dat
+sudo umount -R rootfs/dev rootfs/run
+```
 
-To run `triss` on a [LiveCD system](https://www.debian.org/CD/live/), for
-example to run on a bare metal, air gapped machine, prepare `triss` and its
-dependencies as follows. You could do the initial setup in an internet-connected
-VM.
+#### LiveCD bundle
+
+A "LiveCD bundle" is the collection of packages needed to get `triss` running on
+a clean LiveCD system. The following example uses a [Debian
+LiveCD](https://www.debian.org/CD/live/), but the method works for any LiveCD:
+Download all required packages and dependencies onto a clean LiveCD system, then
+save them for subsequent use with offline instances of the same system.
 
 ##### Create LiveCD Bundle
 ```bash
-# Boot a Debian LiveCD image, see https://www.debian.org/CD/live/
+# Boot a Debian LiveCD image, see https://www.debian.org/CD/live/ (can use a VM
+# for this step)
 
-# 1) Install triss deps
+# 1) Make working directory
+VERSION=2.1
+mkdir "triss-v${VERSION}-livecd-bundle" &&
+    pushd "triss-v${VERSION}-livecd-bundle"
+
+# 2) Install triss deps
 sudo apt update
 sudo apt install -y python3-venv qrencode zbar-tools
 
-# 2) Then list installed and upgraded packages from last stanza in log with:
-mkdir triss-livecd-bundle && cd triss-livecd-bundle
-
+# 3) Then list installed and upgraded packages from last stanza in log with:
 tac /var/log/apt/history.log |
   sed -n '1,/^Start-Date:/p' |
   grep -E 'Install|Upgrade' |
@@ -491,33 +517,37 @@ tac /var/log/apt/history.log |
        -e 's/ //g' \
        > packages.txt
 
-# 3) Fetch them
+# 4) Fetch them
 mkdir debs && pushd debs
 apt-get download $(cat ../packages.txt)
 
-# 4) Compute and sign checksums
+# 5) Compute and sign checksums
 sha256sum * > SHA256SUMS
 gpg --detach-sign --armor SHA256SUMS
-popd
+popd  # out of debs
 
-# 5) Create and activate a python virtual env
+# 6) Create and activate a python virtual env
 $(command -v python3 || command -v python) -m venv venv
 source venv/bin/activate
 
-# 6) Download and install triss
-mkdir wheel && cd wheel
-TRISS_VERSION=2.1
-pip download triss==$TRISS_VERSION
+# 7) Download and install triss
+mkdir wheel && pushd wheel
+pip download "triss==$VERSION"
 
 gpg --keyserver keyserver.ubuntu.com --recv-keys 219E9F62C560C55D2AFA44AEE970EC6EC2E57448
-curl -L -O https://github.com/pdbrown/triss/releases/download/v${TRISS_VERSION}/SHA256SUMS
-curl -L -O https://github.com/pdbrown/triss/releases/download/v${TRISS_VERSION}/SHA256SUMS.asc
+curl -L -O https://github.com/pdbrown/triss/releases/download/v${VERSION}/SHA256SUMS
+curl -L -O https://github.com/pdbrown/triss/releases/download/v${VERSION}/SHA256SUMS.asc
 gpg --verify SHA256SUMS.asc
 sha256sum --ignore-missing --check SHA256SUMS
 
-# 7) Copy the bundle onto a persistent filesystem, e.g. a USB flash drive.
-cd ../..
-cp -r triss-livecd-bundle $DESTINATION
+# 8) Save the bundle to a DESTINATION directory
+popd  # out of wheel
+deactivate  # the venv
+rm -r venv
+popd  # out of triss-v${VERSION}-livecd-bundle
+tar czf "triss-v${VERSION}-livecd-bundle.tar.gz" \
+    "triss-v${VERSION}-livecd-bundle"
+cp -r "triss-v${VERSION}-livecd-bundle.tar.gz" "$DESTINATION"
 ```
 
 ##### Use LiveCD Bundle
@@ -525,8 +555,10 @@ cp -r triss-livecd-bundle $DESTINATION
 ```bash
 # Boot a Debian LiveCD image, see https://www.debian.org/CD/live/
 
-# Obtain the triss-livecd-bundle you prepared previously
-cd triss-livecd-bundle
+# Obtain and extract the bundle
+VERSION=2.1
+tar xf "triss-v${VERSION}-livecd-bundle.tar.gz"
+cd "triss-v${VERSION}-livecd-bundle"
 
 # 1) Verify and install debs
 pushd debs
