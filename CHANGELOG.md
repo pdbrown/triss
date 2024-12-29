@@ -2,6 +2,9 @@
 
 ### Changes
 - Update build so `make` can be run outside of python virtualenv.
+- Allow docker build to include development / prerelease dist package versions.
+- Put version details into QRCODE share captions.
+- Pin dependencies to fixed versions.
 
 ## 2.1
 
