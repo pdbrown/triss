@@ -3,6 +3,7 @@
 
 import multiprocessing
 import random
+import shutil
 import threading
 
 from tests.main.test_core import do_split_combine, select_m_shares
@@ -37,6 +38,8 @@ def stress_qr_codec(tid, tmp_path):
                     skip_combine_check=True,
                     m=2,
                     n=2)
+                shutil.rmtree(my_path / "shares")
+
     except Exception as e:
         global success
         success = False

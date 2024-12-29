@@ -1,3 +1,8 @@
+## 2.3
+
+### Fixes
+- Fix `make stress`
+
 ## 2.2
 
 ### Changes
