@@ -38,8 +38,10 @@ RUN <<EOF bash
     export PIP_DISABLE_PIP_VERSION_CHECK=1
     export PIP_NO_CACHE_DIR=1
 
-    # User /venv-builder's pip to install into /venv
-    pip --python /venv/bin/python install triss --find-links /build/dist
+    # User /venv-builder's pip to install into /venv. Set --pre flag to allow
+    # pre-release versions too (e.g 2.2.dev1). If not set, pip pulls latest
+    # stable from PyPI instead of locally built (development) dist package.
+    pip --python /venv/bin/python install triss --pre --find-links /build/dist
 EOF
 
 
