@@ -1,11 +1,15 @@
 # Copyright: (c) 2024, Philip Brown
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
+from datetime import datetime
+import importlib.metadata
 import mimetypes
 from pathlib import Path
+import platform
 import re
 import subprocess
 from subprocess import PIPE, Popen, TimeoutExpired
+import sys
 
 try:
     from PIL import Image, ImageDraw
@@ -117,7 +121,7 @@ def do_qrencode(data, path):
             f"qrencode failed with error writing to {path}.")
 
 
-def add_caption(img, title, subtitle="", detail=""):
+def add_caption(img, title, subtitle="", detail="", float_right=""):
     # Size images so text has constant size regardless of the qrcode size.
     spacing = 6
     # width of version qr code
@@ -125,9 +129,10 @@ def add_caption(img, title, subtitle="", detail=""):
     title_font = image.find_font(6 * QR_MODULE_SIZE)
     subtitle_font = image.find_font(4 * QR_MODULE_SIZE)
     detail_font = image.find_font(2.5 * QR_MODULE_SIZE)
-    title_h = image.font_height(title_font, title, spacing=spacing)
-    subtitle_h = image.font_height(subtitle_font, subtitle, spacing=spacing)
-    detail_h = image.font_height(detail_font, detail, spacing=spacing)
+    float_font = image.find_font(2.5 * QR_MODULE_SIZE)
+    title_h = image.text_height(title, title_font, spacing=spacing)
+    subtitle_h = image.text_height(subtitle, subtitle_font, spacing=spacing)
+    detail_h = image.text_height(detail, detail_font, spacing=spacing)
     y_margin = 6 * spacing
     h = MARGIN + title_h + subtitle_h + detail_h + 3 * y_margin
     capt = Image.new('RGBA', (w, h), 'white')
@@ -145,18 +150,36 @@ def add_caption(img, title, subtitle="", detail=""):
     d.line(((MARGIN, line_y), (w - MARGIN, line_y)), 'gray')
 
     captioned = image.merge_y(capt, img)
+    if float_right:
+        float_img = image.text_img(float_right, float_font,
+                                   spacing=spacing, padding=8)
+        image.float_right(captioned, float_img, anchor=(MARGIN, MARGIN))
+
     # Add enough vertical padding to make image square so it prints in portrait
     # orientation by default.
     return image.pad_vertical(captioned)
 
 
-def qr_encode(data, path, *, title="", subtitle="", detail=""):
+def qr_encode(data, path, *, title="", subtitle="", detail="", float_right=""):
     do_qrencode(data, path)
     img = image.load(path)
     if title:
-        img = add_caption(img, title, subtitle, detail)
+        img = add_caption(img, title, subtitle, detail, float_right)
     img.save(path)
     return img
+
+
+def about_text():
+    todays_date = datetime.today().strftime('%Y-%m-%d')
+    uname = platform.uname()
+    system_info = f"{uname.system} {uname.release}"
+    python_version = "python version " + platform.python_version()
+    triss_version = "triss version " + importlib.metadata.version('triss')
+    qrencode_version = subprocess.check_output(
+        ['qrencode', '--version']).decode().strip().split('\n')[0].strip()
+    lines = [todays_date, system_info, python_version,
+             triss_version, qrencode_version]
+    return '\n'.join(line[0:30] for line in lines)
 
 
 class QRWriter(FileWriter):
@@ -177,7 +200,7 @@ class QRWriter(FileWriter):
                     f"Part {header.metadata.part_number}/"
                     f"{self.n_parts_per_share}\n"
                     f"Recover secret with {self.m} of {self.n} shares.\n"
-                    f"Require all parts of each share.")
+                    f"Requires all {self.n_parts_per_share} parts of each share.")
         detail = (
             "==== Part Details ====\n"
             f"{type(header).__name__} version: {header.version}\n"
@@ -212,9 +235,11 @@ class QRWriter(FileWriter):
         with path.open('rb') as f:
             data = f.read()
         img_path = path.with_suffix(".png")
+        about = about_text()
         qr_encode(data, img_path, title=self.secret_name,
                   subtitle=subtitle,
-                  detail=detail)
+                  detail=detail,
+                  float_right=about)
         path.unlink()
 
 

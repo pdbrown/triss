@@ -52,6 +52,14 @@ def merge_y(im_top, im_bottom):
     return im
 
 
+def float_right(im_base, im_float, anchor=(0, 0)):
+    w_base = im_base.size[0]
+    w_float = im_float.size[0]
+    x = max(0, w_base - w_float - anchor[0])
+    y = anchor[1]
+    im_base.paste(im_float, (x, y))
+
+
 def pad_vertical(img):
     w, h = img.size
     if w <= h:
@@ -71,7 +79,7 @@ def find_font(size):
     return None
 
 
-def font_height(font, text, spacing=4):
+def text_height(text, font, spacing=4):
     img = Image.new("RGBA", (1, 1))
     d = ImageDraw.Draw(img)
     (left, top, right, bottom) = d.multiline_textbbox(
@@ -83,3 +91,16 @@ def add_xy(pos, dxdy):
     x, y = pos
     dx, dy = dxdy
     return (x + dx, y + dy)
+
+
+def text_img(text, font, spacing=4, padding=8, fill='black', bg='white'):
+    img = Image.new("RGBA", (1, 1))
+    d = ImageDraw.Draw(img)
+    (left, top, right, bottom) = d.multiline_textbbox(
+        (0, 0), text, font=font, spacing=spacing)
+    w = right - left + (2 * padding)
+    h = bottom - top + (2 * padding)
+    img = Image.new("RGBA", (w, h), bg)
+    d = ImageDraw.Draw(img)
+    d.text((padding, padding), text, font=font, spacing=spacing, fill=fill, align='right')
+    return img
