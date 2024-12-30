@@ -178,7 +178,7 @@ wget https://github.com/pdbrown/triss/releases/download/v2.3/SHA256SUMS.asc
 
 # Verify the package
 gpg --verify SHA256SUMS.asc
-sha256sum --check SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
 
 # Install triss and its 3rd party dependency "pillow"
 pip install *.whl

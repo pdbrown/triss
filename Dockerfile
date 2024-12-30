@@ -18,6 +18,7 @@ WORKDIR /build
 # venv setup
 RUN <<EOF bash
     set -ex
+    apt-get update
     apt-get install -y python3-venv
     python3 -m venv --without-pip /venv
     python3 -m venv /venv-builder
@@ -47,7 +48,11 @@ EOF
 
 FROM base as app
 
-RUN apt-get install -y qrencode zbar-tools
+RUN <<EOF bash
+    set -ex
+    apt-get update
+    apt-get install -y qrencode zbar-tools
+EOF
 
 COPY --from=builder --link /venv /venv
 
