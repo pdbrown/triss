@@ -173,8 +173,8 @@ pip download triss
 gpg --keyserver keyserver.ubuntu.com --recv-keys 219E9F62C560C55D2AFA44AEE970EC6EC2E57448
 
 # Download SHA256SUMS and SHA256SUMS.asc
-wget https://github.com/pdbrown/triss/releases/download/v2.3/SHA256SUMS
-wget https://github.com/pdbrown/triss/releases/download/v2.3/SHA256SUMS.asc
+wget https://github.com/pdbrown/triss/releases/download/v2.4/SHA256SUMS
+wget https://github.com/pdbrown/triss/releases/download/v2.4/SHA256SUMS.asc
 
 # Verify the package
 gpg --verify SHA256SUMS.asc
@@ -496,7 +496,7 @@ save them for subsequent use with offline instances of the same system.
 # for this step)
 
 # 1) Make working directory
-VERSION=2.3
+VERSION=2.4
 mkdir "triss-v${VERSION}-livecd-bundle" &&
     pushd "triss-v${VERSION}-livecd-bundle"
 
@@ -556,7 +556,7 @@ cp -r "triss-v${VERSION}-livecd-bundle.tar.gz" "$DESTINATION"
 # Boot a Debian LiveCD image, see https://www.debian.org/CD/live/
 
 # Obtain and extract the bundle
-VERSION=2.3
+VERSION=2.4
 tar xf "triss-v${VERSION}-livecd-bundle.tar.gz"
 cd "triss-v${VERSION}-livecd-bundle"
 
