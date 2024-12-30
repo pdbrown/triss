@@ -1,3 +1,8 @@
+## 2.4
+
+### Changes
+- Remove docker image ENTRYPOINT
+
 ## 2.3
 
 ### Fixes

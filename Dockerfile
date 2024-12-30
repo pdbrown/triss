@@ -62,5 +62,3 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Activate /venv
 ENV PATH="/venv/bin:${PATH}"
 ENV VIRTUAL_ENV=/venv
-
-ENTRYPOINT ["/venv/bin/triss"]

@@ -445,7 +445,7 @@ To run the container with `docker`, do:
 echo "General Kenobi." > secret.txt
 VERSION=$(awk -F\" '/^version/ { print $2 }' pyproject.toml)
 docker run --rm -v .:/app triss:"$VERSION" \
-    split -i /app/secret.txt -c QRCODE -m 2 3 /app/shares
+    triss split -i /app/secret.txt -c QRCODE -m 2 3 /app/shares
 
 # And find the shares here:
 find ./shares
